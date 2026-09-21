@@ -93,9 +93,22 @@ export function useAuth() {
     setState((s) => ({ ...s, blockedMessage: null }))
     try {
       await signInWithPopup(auth, googleProvider)
-    } catch {
-      // A popup closed/cancelled by the user also lands here; onAuthStateChanged
-      // handles the unmapped-account case once the popup does succeed.
+      // A successful popup lands here; onAuthStateChanged (above) then
+      // resolves the unmapped-account case once the session exists.
+    } catch (err) {
+      const code = (err as { code?: string })?.code ?? ''
+      // The user closing/cancelling the popup themselves isn't an error --
+      // don't show a message for those, just let them try again.
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        return
+      }
+      const message =
+        code === 'auth/unauthorized-domain'
+          ? "This site isn't authorized for sign-in yet. Ask your admin to add this domain in Firebase Authentication settings."
+          : code === 'auth/popup-blocked'
+            ? 'Your browser blocked the sign-in popup. Allow popups for this site and try again.'
+            : `Sign-in failed (${code || 'unknown error'}). Try again.`
+      setState((s) => ({ ...s, blockedMessage: message }))
     }
   }
 
