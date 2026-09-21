@@ -4,7 +4,6 @@ import {
   deleteDoc,
   doc,
   getDoc,
-  getDocs,
   onSnapshot,
   query,
   setDoc,
@@ -13,7 +12,8 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore'
 import { db } from './firebase'
-import { calcDefaultCredits } from './credits'
+
+export type CreditType = 'spark' | 'beacon'
 
 export interface Manager {
   id: string
@@ -34,6 +34,7 @@ export interface Award {
   cycleId: string
   managerId: string
   managerName: string
+  type: CreditType
   recipientId: string
   recipientName: string
   reason: string
@@ -53,9 +54,16 @@ export interface Cycle {
   openedAt: string
 }
 
+/**
+ * Self-reported by the manager themselves, not computed or set by the admin
+ * (stakeholder feedback, 2026-09-21): the org's real rewards system tells a
+ * manager how many Spark and Beacon credits they have for the cycle, and
+ * this app just records what they were told and tracks usage against it.
+ */
 export interface Allocation {
   managerId: string
-  allocated: number
+  sparkTotal: number
+  beaconTotal: number
 }
 
 export function subscribeManagers(onChange: (managers: Manager[]) => void): Unsubscribe {
@@ -130,7 +138,18 @@ export function subscribeAllocations(
   })
 }
 
-/** The one direct client write every signed-in manager makes: recording an award they already gave. */
+/**
+ * A manager sets their own Spark/Beacon totals for the current cycle
+ * (stakeholder feedback: self-reported, not admin- or formula-set).
+ * firestore.rules only allows a manager to write their own doc, and only
+ * while that cycle is still the current one -- a closed cycle's reported
+ * totals stay fixed, same protection the old admin-set allocations had.
+ */
+export async function setMyAllocation(cycleId: string, managerId: string, sparkTotal: number, beaconTotal: number): Promise<void> {
+  await setDoc(doc(db, 'cycles', cycleId, 'allocations', managerId), { managerId, sparkTotal, beaconTotal })
+}
+
+/** The one direct client write every signed-in manager makes: recording a Spark award or Beacon nomination they already gave. */
 export async function giveAward(award: Omit<Award, 'id'>): Promise<void> {
   await addDoc(collection(db, 'awards'), award)
 }
@@ -148,17 +167,6 @@ export async function addReportee(managerId: string, name: string, designation: 
 
 export async function removeReportee(reporteeId: string): Promise<void> {
   await deleteDoc(doc(db, 'reportees', reporteeId))
-}
-
-export async function resetAllocation(cycleId: string, managerId: string): Promise<number> {
-  const reporteesSnap = await getDocs(query(collection(db, 'reportees'), where('managerId', '==', managerId)))
-  const allocated = calcDefaultCredits(reporteesSnap.size)
-  await setDoc(doc(db, 'cycles', cycleId, 'allocations', managerId), { managerId, allocated })
-  return allocated
-}
-
-export async function setAllocation(cycleId: string, managerId: string, allocated: number): Promise<void> {
-  await setDoc(doc(db, 'cycles', cycleId, 'allocations', managerId), { managerId, allocated })
 }
 
 // ─── CSV roster bulk-import (R4, AE1) ──────────────────────────────────────────
@@ -220,40 +228,24 @@ export async function importRoster(rows: RosterRow[]): Promise<RosterRowResult[]
   return results
 }
 
-// ─── Cycle open (R6, R7, R8, AE3) ──────────────────────────────────────────────
+// ─── Cycle open (R6) ────────────────────────────────────────────────────────────
 
+/**
+ * Opens a new cycle and closes the previous one. Unlike the old
+ * headcount-formula version, this no longer writes any allocations --
+ * Spark/Beacon totals are self-reported per manager (setMyAllocation), so
+ * each manager enters theirs once the new cycle is open.
+ */
 export async function openCycle(label: string): Promise<{ cycleId: string; label: string }> {
   const trimmed = label.trim()
   if (!trimmed) throw new Error('A cycle label is required.')
 
-  const [managersSnap, reporteesSnap, metaSnap] = await Promise.all([
-    getDocs(collection(db, 'managers')),
-    getDocs(collection(db, 'reportees')),
-    getDoc(doc(db, 'meta', 'currentCycle')),
-  ])
-
-  const reporteeCounts = new Map<string, number>()
-  for (const reporteeDoc of reporteesSnap.docs) {
-    const managerId = reporteeDoc.data().managerId as string
-    reporteeCounts.set(managerId, (reporteeCounts.get(managerId) ?? 0) + 1)
-  }
-
+  const metaSnap = await getDoc(doc(db, 'meta', 'currentCycle'))
   const previousCycleId = metaSnap.exists() ? (metaSnap.data().cycleId as string | undefined) : undefined
 
   const batch = writeBatch(db)
   const newCycleRef = doc(collection(db, 'cycles'))
   batch.set(newCycleRef, { label: trimmed, status: 'open', openedAt: new Date().toISOString() })
-
-  for (const managerDoc of managersSnap.docs) {
-    const allocated = calcDefaultCredits(reporteeCounts.get(managerDoc.id) ?? 0)
-    // Allocation docs are new here (rules-permitted create), never already
-    // existing -- a fresh cycle id can't collide with a prior cycle's
-    // allocation subcollection.
-    batch.set(doc(db, 'cycles', newCycleRef.id, 'allocations', managerDoc.id), {
-      managerId: managerDoc.id,
-      allocated,
-    })
-  }
 
   if (previousCycleId) {
     batch.update(doc(db, 'cycles', previousCycleId), { status: 'closed' })

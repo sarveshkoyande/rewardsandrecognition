@@ -48,17 +48,13 @@ service cloud.firestore {
       allow write: if isAdmin();
 
       match /allocations/{managerId} {
+        // Self-reported by the manager themselves (stakeholder feedback,
+        // 2026-09-21) -- not admin- or formula-set. A manager may only
+        // write their own doc, and only while that cycle is still current,
+        // so a closed cycle's reported totals stay fixed (same protection
+        // R7/AE3 gave the old admin-set allocations).
         allow read: if isAdmin() || isOwnManagerId(managerId);
-        // An allocation doc is first created while opening a brand new
-        // cycle (before meta/currentCycle points at it, so it can't be
-        // gated on "is this the current cycle" yet). Once it exists, further
-        // edits (resetAllocation/setAllocation) are only allowed while that
-        // cycle is still the current one, so a stale or mistaken admin
-        // action can never rewrite a closed cycle's historical snapshot
-        // (R7/AE3).
-        allow create: if isAdmin();
-        allow update: if isAdmin() && cycleId == currentCycleId();
-        allow delete: if false;
+        allow write: if isOwnManagerId(managerId) && cycleId == currentCycleId();
       }
     }
 
@@ -79,7 +75,8 @@ service cloud.firestore {
     match /awards/{awardId} {
       allow read: if isAdmin() || isOwnManagerId(resource.data.managerId);
       allow create: if isOwnManagerId(request.resource.data.managerId)
-                    && request.resource.data.cycleId == currentCycleId();
+                    && request.resource.data.cycleId == currentCycleId()
+                    && request.resource.data.type in ['spark', 'beacon'];
       allow update, delete: if false;
     }
   }

@@ -9,8 +9,7 @@ import {
   addReportee as createReportee,
   giveAward,
   removeReportee,
-  resetAllocation,
-  setAllocation,
+  setMyAllocation,
   subscribeAllocations,
   subscribeAwards,
   subscribeCurrentCycle,
@@ -20,6 +19,7 @@ import {
   subscribeReportees,
   type Allocation,
   type Award,
+  type CreditType,
   type CurrentCycle,
   type Cycle,
   type Manager,
@@ -28,10 +28,15 @@ import {
 
 const AWARD_CATEGORIES = ['Star Performer', 'Team Player', 'Innovation', 'Client Excellence', 'Above & Beyond']
 
-// A manager combined with this cycle's data, matching the shape the
-// dashboard/people/manager views render against.
+const CREDIT_TYPE_LABEL: Record<CreditType, string> = { spark: 'Spark', beacon: 'Beacon' }
+const CREDIT_TYPE_VERB: Record<CreditType, string> = { spark: 'Awarded', beacon: 'Nominated' }
+
+// A manager combined with this cycle's self-reported totals, matching the
+// shape the dashboard/people/manager views render against.
 interface ManagerWithData extends Manager {
-  credits: number
+  sparkTotal: number
+  beaconTotal: number
+  hasReported: boolean
   reportees: Reportee[]
   currentCycleId?: string
 }
@@ -42,6 +47,10 @@ interface AwardWithLabel extends Award {
 
 function Badge({ label }: { label: string }) {
   return <span className="tag tag-primary">{label}</span>
+}
+
+function TypeTag({ type }: { type: CreditType }) {
+  return <span className={`tag ${type === 'spark' ? 'tag-solid tag-warning' : 'tag-solid tag-info'}`}>{CREDIT_TYPE_LABEL[type]}</span>
 }
 
 function CycleBadge({ label, isCurrent }: { label: string; isCurrent: boolean }) {
@@ -74,16 +83,17 @@ function AdminDashboard({
   currentCycleLabel: string
 }) {
   const currentAwards = awards.filter((a) => a.cycleLabel === currentCycleLabel)
-  const totalCredits = managers.reduce((s, m) => s + m.credits, 0)
-  const totalUsed = managers.reduce((s, m) => s + currentAwards.filter((a) => a.managerId === m.id).length, 0)
+  const sparkGiven = currentAwards.filter((a) => a.type === 'spark').length
+  const beaconGiven = currentAwards.filter((a) => a.type === 'beacon').length
+  const reportedCount = managers.filter((m) => m.hasReported).length
 
   return (
     <div className="space-y-8">
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: 'Total Credits This Cycle', value: totalCredits, sub: `across ${managers.length} managers` },
-          { label: 'Credits Used', value: totalUsed, sub: `${totalCredits - totalUsed} remaining` },
-          { label: 'Awards Given', value: currentAwards.length, sub: currentCycleLabel },
+          { label: 'Spark Awards Given', value: sparkGiven, sub: currentCycleLabel },
+          { label: 'Beacon Nominations', value: beaconGiven, sub: currentCycleLabel },
+          { label: 'Managers Reporting Credits', value: `${reportedCount}/${managers.length}`, sub: 'have set their totals this cycle' },
         ].map((k) => (
           <div key={k.label} className="ds-card p-5">
             <p className="ds-label-m uppercase text-[var(--muted-foreground)] mb-1">{k.label}</p>
@@ -96,58 +106,20 @@ function AdminDashboard({
       <div className="ds-card overflow-hidden">
         <div className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
           <div>
-            <h2 className="ds-title-m">Credit Utilisation — {currentCycleLabel}</h2>
-            <p className="ds-body-s text-[var(--muted-foreground)] mt-0.5">1 credit = 1 award · Credits = 40% of reportee headcount</p>
+            <h2 className="ds-title-m">Activity — {currentCycleLabel}</h2>
+            <p className="ds-body-s text-[var(--muted-foreground)] mt-0.5">Every Spark award and Beacon nomination this cycle, most recent first</p>
           </div>
           <OpenCycleButton />
         </div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-[var(--secondary)] text-[var(--muted-foreground)] ds-label-m uppercase">
-              <th className="text-left px-5 py-3">Manager</th>
-              <th className="text-left px-5 py-3">Reportees</th>
-              <th className="text-center px-5 py-3">Total Credits</th>
-              <th className="text-center px-5 py-3">Used</th>
-              <th className="text-center px-5 py-3">Remaining</th>
-              <th className="text-left px-5 py-3">Visual</th>
-            </tr>
-          </thead>
-          <tbody>
-            {managers.map((m, i) => {
-              const used = currentAwards.filter((a) => a.managerId === m.id).length
-              const remaining = m.credits - used
-              return (
-                <tr key={m.id} className={`border-t border-[var(--border)] ${i % 2 === 1 ? 'bg-[var(--secondary)]/30' : ''}`}>
-                  <td className="px-5 py-4">
-                    <p className="font-medium">{m.name}</p>
-                    <p className="text-xs text-[var(--muted-foreground)]">{m.designation}</p>
-                  </td>
-                  <td className="px-5 py-4 text-[var(--muted-foreground)] ds-tabular text-sm text-left">{m.reportees.length}</td>
-                  <td className="px-5 py-4 text-center ds-tabular font-semibold">{m.credits}</td>
-                  <td className="px-5 py-4 text-center ds-tabular text-[var(--primary)] font-semibold">{used}</td>
-                  <td className="px-5 py-4 text-center ds-tabular text-[var(--success-foreground)] font-semibold">{remaining}</td>
-                  <td className="px-5 py-4">
-                    <CreditPips total={m.credits} used={used} />
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="ds-card overflow-hidden">
-        <div className="px-5 py-4 border-b border-[var(--border)]">
-          <h2 className="ds-title-m">Awards Given — {currentCycleLabel}</h2>
-        </div>
         {currentAwards.length === 0 ? (
-          <p className="px-5 py-10 text-sm text-[var(--muted-foreground)] text-center">No awards given yet this cycle.</p>
+          <p className="px-5 py-10 text-sm text-[var(--muted-foreground)] text-center">Nothing recorded yet this cycle.</p>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-[var(--secondary)] text-[var(--muted-foreground)] ds-label-m uppercase">
+                <th className="text-left px-5 py-3">Type</th>
                 <th className="text-left px-5 py-3">Recipient</th>
-                <th className="text-left px-5 py-3">Awarded by</th>
+                <th className="text-left px-5 py-3">By</th>
                 <th className="text-left px-5 py-3">Category</th>
                 <th className="text-left px-5 py-3">Reason</th>
                 <th className="text-right px-5 py-3">Date</th>
@@ -156,6 +128,7 @@ function AdminDashboard({
             <tbody>
               {[...currentAwards].sort((a, b) => b.date.localeCompare(a.date)).map((a, i) => (
                 <tr key={a.id} className={`border-t border-[var(--border)] ${i % 2 === 1 ? 'bg-[var(--secondary)]/30' : ''}`}>
+                  <td className="px-5 py-3"><TypeTag type={a.type} /></td>
                   <td className="px-5 py-3 font-medium">{a.recipientName}</td>
                   <td className="px-5 py-3 text-[var(--muted-foreground)]">{a.managerName}</td>
                   <td className="px-5 py-3"><Badge label={a.category} /></td>
@@ -170,7 +143,7 @@ function AdminDashboard({
 
       <HistoryTable
         awards={awards.filter((a) => a.cycleLabel !== currentCycleLabel)}
-        title="Past Awards — Previous Cycles"
+        title="Past Activity — Previous Cycles"
         currentCycleLabel={currentCycleLabel}
       />
     </div>
@@ -179,7 +152,6 @@ function AdminDashboard({
 
 // ─── Admin: People ────────────────────────────────────────────────────────────
 function AdminPeopleView({ managers }: { managers: ManagerWithData[] }) {
-  const [editingCredits, setEditingCredits] = useState<{ id: string; value: string } | null>(null)
   const [addManager, setAddManager] = useState(false)
   const [newManager, setNewManager] = useState({ name: '', designation: '', email: '' })
   const [addReportee, setAddReportee] = useState<string | null>(null)
@@ -190,7 +162,7 @@ function AdminPeopleView({ managers }: { managers: ManagerWithData[] }) {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="ds-headline-s">People & Structure</h2>
-          <p className="text-sm text-[var(--muted-foreground)] mt-0.5">Manage managers, reportees, and credit allocations. Credits auto-calculate at 40% of headcount.</p>
+          <p className="text-sm text-[var(--muted-foreground)] mt-0.5">Manage managers and reportees. Managers report their own Spark and Beacon totals each cycle.</p>
         </div>
         <button onClick={() => setAddManager(true)} className="btn btn-filled btn-md">
           + Add Manager
@@ -230,43 +202,13 @@ function AdminPeopleView({ managers }: { managers: ManagerWithData[] }) {
               <p className="font-semibold">{m.name}</p>
               <p className="text-xs text-[var(--muted-foreground)]">{m.designation} · {m.reportees.length} reportees</p>
             </div>
-            <div className="flex items-center gap-4">
-              <div className="text-right">
-                <p className="text-xs text-[var(--muted-foreground)] mb-1">Credits Allocated (this cycle)</p>
-                {editingCredits?.id === m.id ? (
-                  <div className="flex items-center gap-2">
-                    <input
-                      autoFocus
-                      type="number"
-                      className="ds-input ds-tabular w-16 text-center"
-                      style={{ height: 32, padding: '0 var(--spacing-8)' }}
-                      value={editingCredits.value}
-                      onChange={(e) => setEditingCredits({ ...editingCredits, value: e.target.value })}
-                    />
-                    <button
-                      className="btn btn-filled btn-sm"
-                      onClick={async () => {
-                        const v = parseInt(editingCredits.value)
-                        if (!isNaN(v) && v >= 0 && m.currentCycleId) {
-                          await setAllocation(m.currentCycleId, m.id, v)
-                        }
-                        setEditingCredits(null)
-                      }}
-                    >Save</button>
-                    <button className="btn btn-outlined btn-icon btn-sm" onClick={() => setEditingCredits(null)}>✕</button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <span className="ds-tabular font-bold text-lg">{m.credits}</span>
-                    <button className="btn btn-text btn-icon btn-sm" onClick={() => setEditingCredits({ id: m.id, value: m.credits.toString() })}>✎</button>
-                    <button
-                      className="btn btn-outlined btn-sm"
-                      onClick={() => m.currentCycleId && resetAllocation(m.currentCycleId, m.id)}
-                      title="Reset to 40% of headcount"
-                    >↺ auto</button>
-                  </div>
-                )}
-              </div>
+            <div className="text-right">
+              <p className="text-xs text-[var(--muted-foreground)] mb-1">This cycle's credits (self-reported)</p>
+              {m.hasReported ? (
+                <p className="ds-tabular font-bold text-sm">Spark {m.sparkTotal} · Beacon {m.beaconTotal}</p>
+              ) : (
+                <span className="tag tag-neutral">Not reported yet</span>
+              )}
             </div>
           </div>
 
@@ -347,12 +289,13 @@ function HistoryTable({ awards, title, currentCycleLabel }: { awards: AwardWithL
           <div key={cycle}>
             <div className="px-5 py-2 bg-[var(--secondary)]/60 border-t border-[var(--border)] flex items-center gap-2">
               <CycleBadge label={cycle} isCurrent={cycle === currentCycleLabel} />
-              <span className="ds-label-s text-[var(--muted-foreground)]">{cycleAwards.length} award{cycleAwards.length !== 1 ? 's' : ''}</span>
+              <span className="ds-label-s text-[var(--muted-foreground)]">{cycleAwards.length} item{cycleAwards.length !== 1 ? 's' : ''}</span>
             </div>
             <table className="w-full text-sm">
               <tbody>
                 {cycleAwards.map((a, i) => (
                   <tr key={a.id} className={`border-t border-[var(--border)] ${i % 2 === 1 ? 'bg-[var(--secondary)]/20' : ''}`}>
+                    <td className="px-5 py-3"><TypeTag type={a.type} /></td>
                     <td className="px-5 py-3 font-medium w-40">{a.recipientName}</td>
                     <td className="px-5 py-3 text-[var(--muted-foreground)] ds-body-s w-36">{a.managerName}</td>
                     <td className="px-5 py-3"><Badge label={a.category} /></td>
@@ -368,27 +311,85 @@ function HistoryTable({ awards, title, currentCycleLabel }: { awards: AwardWithL
   )
 }
 
+// ─── Manager: set own credits ───────────────────────────────────────────────────
+function SetCreditsForm({
+  cycleLabel,
+  initialSpark,
+  initialBeacon,
+  onSave,
+}: {
+  cycleLabel: string
+  initialSpark: number
+  initialBeacon: number
+  onSave: (spark: number, beacon: number) => Promise<void>
+}) {
+  const [spark, setSpark] = useState(String(initialSpark || ''))
+  const [beacon, setBeacon] = useState(String(initialBeacon || ''))
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    const s = parseInt(spark)
+    const b = parseInt(beacon)
+    if (isNaN(s) || s < 0 || isNaN(b) || b < 0) return
+    setSaving(true)
+    try {
+      await onSave(s, b)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="ds-card p-5">
+      <h2 className="ds-title-m mb-1">Your Credits — {cycleLabel}</h2>
+      <p className="ds-body-s text-[var(--muted-foreground)] mb-4">
+        Enter how many Spark and Beacon credits you've been allocated this cycle.
+      </p>
+      <div className="flex items-end gap-3">
+        <div>
+          <label className="ds-label-m text-[var(--foreground)] block mb-1.5">Spark credits</label>
+          <input type="number" className="ds-input" style={{ width: 120 }} value={spark} onChange={(e) => setSpark(e.target.value)} />
+        </div>
+        <div>
+          <label className="ds-label-m text-[var(--foreground)] block mb-1.5">Beacon credits</label>
+          <input type="number" className="ds-input" style={{ width: 120 }} value={beacon} onChange={(e) => setBeacon(e.target.value)} />
+        </div>
+        <button className="btn btn-filled btn-md disabled:opacity-40 disabled:pointer-events-none" disabled={saving} onClick={save}>
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ─── Manager View ─────────────────────────────────────────────────────────────
 function ManagerView({
   manager,
   awards,
   currentCycle,
   onGiveAward,
+  onSetCredits,
 }: {
   manager: ManagerWithData
   awards: AwardWithLabel[]
   currentCycle: CurrentCycle
-  onGiveAward: (recipientId: string, recipientName: string, reason: string, category: string) => Promise<void>
+  onGiveAward: (type: CreditType, recipientId: string, recipientName: string, reason: string, category: string) => Promise<void>
+  onSetCredits: (spark: number, beacon: number) => Promise<void>
 }) {
+  const [editingCredits, setEditingCredits] = useState(false)
   const myCurrentAwards = awards.filter((a) => a.cycleId === currentCycle.cycleId)
-  const used = myCurrentAwards.length
-  const remaining = manager.credits - used
-  const awardedThisCycle = new Set(myCurrentAwards.map((a) => a.recipientId))
+  const sparkUsed = myCurrentAwards.filter((a) => a.type === 'spark').length
+  const beaconUsed = myCurrentAwards.filter((a) => a.type === 'beacon').length
+  const sparkRemaining = manager.sparkTotal - sparkUsed
+  const beaconRemaining = manager.beaconTotal - beaconUsed
 
-  const [form, setForm] = useState({ recipientId: '', reason: '', category: AWARD_CATEGORIES[0] })
+  const [form, setForm] = useState({ type: 'spark' as CreditType, recipientId: '', reason: '', category: AWARD_CATEGORIES[0] })
   const [success, setSuccess] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  const remaining = form.type === 'spark' ? sparkRemaining : beaconRemaining
+  const givenThisType = new Set(myCurrentAwards.filter((a) => a.type === form.type).map((a) => a.recipientId))
 
   async function submit() {
     const rep = manager.reportees.find((r) => r.id === form.recipientId)
@@ -396,42 +397,68 @@ function ManagerView({
     setSubmitting(true)
     setSubmitError(null)
     try {
-      await onGiveAward(rep.id, rep.name, form.reason, form.category)
-      setForm({ recipientId: '', reason: '', category: AWARD_CATEGORIES[0] })
+      await onGiveAward(form.type, rep.id, rep.name, form.reason, form.category)
+      setForm({ ...form, recipientId: '', reason: '' })
       setSuccess(rep.name)
       setTimeout(() => setSuccess(null), 4000)
     } catch {
-      setSubmitError("Couldn't give this award -- your cycle may be out of date. Refresh and try again.")
+      setSubmitError("Couldn't record this -- your cycle may be out of date. Refresh and try again.")
     } finally {
       setSubmitting(false)
     }
   }
 
+  if (!manager.hasReported || editingCredits) {
+    return (
+      <div className="max-w-3xl">
+        <SetCreditsForm
+          cycleLabel={currentCycle.label}
+          initialSpark={manager.sparkTotal}
+          initialBeacon={manager.beaconTotal}
+          onSave={async (s, b) => {
+            await onSetCredits(s, b)
+            setEditingCredits(false)
+          }}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6 max-w-3xl">
-      <div className="ds-card p-5">
-        <div className="flex items-start justify-between mb-4">
-          <div>
-            <p className="ds-label-m uppercase text-[var(--muted-foreground)] mb-1">Your Credits — {currentCycle.label}</p>
-            <div className="flex items-baseline gap-2">
-              <p className="ds-display-s text-[var(--foreground)]">{remaining}</p>
-              <p className="text-[var(--muted-foreground)] text-sm">/ {manager.credits} remaining</p>
-            </div>
-            <p className="ds-body-s text-[var(--muted-foreground)] mt-1">{used} credit{used !== 1 ? 's' : ''} used · 1 credit = 1 award</p>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="ds-card p-5">
+          <div className="flex items-start justify-between mb-2">
+            <p className="ds-label-m uppercase text-[var(--muted-foreground)]">Spark — {currentCycle.label}</p>
           </div>
+          <div className="flex items-baseline gap-2">
+            <p className="ds-display-s text-[var(--foreground)]">{sparkRemaining}</p>
+            <p className="text-[var(--muted-foreground)] text-sm">/ {manager.sparkTotal} remaining</p>
+          </div>
+          <CreditPips total={manager.sparkTotal} used={sparkUsed} />
         </div>
-        <CreditPips total={manager.credits} used={used} />
+        <div className="ds-card p-5">
+          <div className="flex items-start justify-between mb-2">
+            <p className="ds-label-m uppercase text-[var(--muted-foreground)]">Beacon — {currentCycle.label}</p>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <p className="ds-display-s text-[var(--foreground)]">{beaconRemaining}</p>
+            <p className="text-[var(--muted-foreground)] text-sm">/ {manager.beaconTotal} remaining</p>
+          </div>
+          <CreditPips total={manager.beaconTotal} used={beaconUsed} />
+        </div>
       </div>
+      <button className="btn btn-text btn-sm" onClick={() => setEditingCredits(true)}>Edit my credit totals</button>
 
       <div className="ds-card overflow-hidden">
         <div className="px-5 py-4 border-b border-[var(--border)]">
-          <h2 className="ds-title-m">Give a Recognition Award</h2>
-          <p className="ds-body-s text-[var(--muted-foreground)] mt-0.5">Uses 1 credit · Each team member can receive 1 award per cycle</p>
+          <h2 className="ds-title-m">Give Spark or Nominate for Beacon</h2>
+          <p className="ds-body-s text-[var(--muted-foreground)] mt-0.5">Uses 1 credit of the selected type · Each team member can receive one of each per cycle</p>
         </div>
         <div className="p-5 space-y-4">
           {success && (
             <div className="bg-[var(--success-light-background)] border border-[var(--success-foreground)]/20 text-[var(--success-foreground)] text-sm px-4 py-3 rounded-[var(--radius-sm)] flex items-center gap-2">
-              <span>🏆</span> Award given to <strong>{success}</strong> — {remaining} credit{remaining !== 1 ? 's' : ''} remaining
+              <span>🏆</span> {CREDIT_TYPE_VERB[form.type]} <strong>{success}</strong> — {remaining} {CREDIT_TYPE_LABEL[form.type]} credit{remaining !== 1 ? 's' : ''} remaining
             </div>
           )}
           {submitError && (
@@ -441,9 +468,24 @@ function ManagerView({
           )}
           {remaining === 0 && (
             <div className="bg-[var(--warning-light-background)] border border-[var(--warning-foreground)]/20 text-[var(--warning-foreground)] text-sm px-4 py-3 rounded-[var(--radius-sm)]">
-              You've used all your credits for this cycle.
+              You've used all your {CREDIT_TYPE_LABEL[form.type]} credits for this cycle.
             </div>
           )}
+
+          <div>
+            <label className="ds-label-m text-[var(--foreground)] block mb-1.5">Type</label>
+            <div className="flex gap-2">
+              {(['spark', 'beacon'] as CreditType[]).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setForm({ ...form, type: t, recipientId: '' })}
+                  className={`chip ${form.type === t ? 'is-selected' : ''}`}
+                >
+                  {t === 'spark' ? 'Spark award' : 'Beacon nomination'}
+                </button>
+              ))}
+            </div>
+          </div>
 
           <div>
             <label className="ds-label-m text-[var(--foreground)] block mb-1.5">Select Team Member</label>
@@ -455,8 +497,8 @@ function ManagerView({
             >
               <option value="">— Choose a team member —</option>
               {manager.reportees.map((r) => (
-                <option key={r.id} value={r.id} disabled={awardedThisCycle.has(r.id)}>
-                  {r.name} · {r.designation}{awardedThisCycle.has(r.id) ? ' (already awarded)' : ''}
+                <option key={r.id} value={r.id} disabled={givenThisType.has(r.id)}>
+                  {r.name} · {r.designation}{givenThisType.has(r.id) ? ` (already ${CREDIT_TYPE_VERB[form.type].toLowerCase()})` : ''}
                 </option>
               ))}
             </select>
@@ -490,10 +532,10 @@ function ManagerView({
 
           <button
             className="btn btn-filled btn-lg disabled:opacity-40 disabled:pointer-events-none"
-            disabled={submitting || !form.recipientId || !form.reason.trim() || remaining === 0 || awardedThisCycle.has(form.recipientId)}
+            disabled={submitting || !form.recipientId || !form.reason.trim() || remaining === 0 || givenThisType.has(form.recipientId)}
             onClick={submit}
           >
-            {submitting ? 'Giving award…' : 'Give Award — uses 1 credit →'}
+            {submitting ? 'Saving…' : form.type === 'spark' ? 'Give Spark Award — uses 1 credit →' : 'Nominate for Beacon — uses 1 credit →'}
           </button>
         </div>
       </div>
@@ -501,11 +543,12 @@ function ManagerView({
       {myCurrentAwards.length > 0 && (
         <div className="ds-card overflow-hidden">
           <div className="px-5 py-4 border-b border-[var(--border)]">
-            <h2 className="ds-title-m">My Awards — {currentCycle.label}</h2>
+            <h2 className="ds-title-m">My Activity — {currentCycle.label}</h2>
           </div>
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-[var(--secondary)] text-[var(--muted-foreground)] ds-label-m uppercase">
+                <th className="text-left px-5 py-3">Type</th>
                 <th className="text-left px-5 py-3">Recipient</th>
                 <th className="text-left px-5 py-3">Category</th>
                 <th className="text-left px-5 py-3">Reason</th>
@@ -515,6 +558,7 @@ function ManagerView({
             <tbody>
               {[...myCurrentAwards].sort((a, b) => b.date.localeCompare(a.date)).map((a, i) => (
                 <tr key={a.id} className={`border-t border-[var(--border)] ${i % 2 === 1 ? 'bg-[var(--secondary)]/30' : ''}`}>
+                  <td className="px-5 py-3"><TypeTag type={a.type} /></td>
                   <td className="px-5 py-3 font-medium">{a.recipientName}</td>
                   <td className="px-5 py-3"><Badge label={a.category} /></td>
                   <td className="px-5 py-3 text-[var(--muted-foreground)]">{a.reason}</td>
@@ -528,7 +572,7 @@ function ManagerView({
 
       <HistoryTable
         awards={awards.filter((a) => a.cycleId !== currentCycle.cycleId)}
-        title="Previous Cycle Awards — Reference"
+        title="Previous Cycle Activity — Reference"
         currentCycleLabel={currentCycle.label}
       />
     </div>
@@ -586,7 +630,7 @@ export default function App() {
   }
 
   const cycleLabelById = new Map(cycles.map((c) => [c.id, c.label]))
-  const allocationByManagerId = new Map(allocations.map((a) => [a.managerId, a.allocated]))
+  const allocationByManagerId = new Map(allocations.map((a) => [a.managerId, a]))
   const reporteesByManagerId = new Map<string, Reportee[]>()
   for (const r of reportees) {
     reporteesByManagerId.set(r.managerId, [...(reporteesByManagerId.get(r.managerId) ?? []), r])
@@ -596,34 +640,48 @@ export default function App() {
     cycleLabel: cycleLabelById.get(a.cycleId) ?? a.cycleId,
   }))
 
-  const managersWithData: ManagerWithData[] = managers.map((m) => ({
-    ...m,
-    credits: allocationByManagerId.get(m.id) ?? 0,
-    reportees: reporteesByManagerId.get(m.id) ?? [],
-    currentCycleId: currentCycle?.cycleId,
-  }))
+  const managersWithData: ManagerWithData[] = managers.map((m) => {
+    const alloc = allocationByManagerId.get(m.id)
+    return {
+      ...m,
+      sparkTotal: alloc?.sparkTotal ?? 0,
+      beaconTotal: alloc?.beaconTotal ?? 0,
+      hasReported: !!alloc,
+      reportees: reporteesByManagerId.get(m.id) ?? [],
+      currentCycleId: currentCycle?.cycleId,
+    }
+  })
 
+  const myAlloc = allocations[0]
   const currentManager: ManagerWithData | null =
     !isAdmin && myManager
       ? {
           ...myManager,
-          credits: allocations[0]?.allocated ?? 0,
+          sparkTotal: myAlloc?.sparkTotal ?? 0,
+          beaconTotal: myAlloc?.beaconTotal ?? 0,
+          hasReported: !!myAlloc,
           reportees: reporteesByManagerId.get(myManager.id) ?? [],
         }
       : null
 
-  async function handleGiveAward(recipientId: string, recipientName: string, reason: string, category: string) {
+  async function handleGiveAward(type: CreditType, recipientId: string, recipientName: string, reason: string, category: string) {
     if (!currentManager || !currentCycle) return
     await giveAward({
       cycleId: currentCycle.cycleId,
       managerId: currentManager.id,
       managerName: currentManager.name,
+      type,
       recipientId,
       recipientName,
       reason,
       category,
       date: new Date().toISOString().split('T')[0],
     })
+  }
+
+  async function handleSetCredits(spark: number, beacon: number) {
+    if (!currentManager || !currentCycle) return
+    await setMyAllocation(currentCycle.cycleId, currentManager.id, spark, beacon)
   }
 
   return (
@@ -686,7 +744,7 @@ export default function App() {
         ) : !currentCycle ? (
           <p className="text-sm text-[var(--muted-foreground)]">No award cycle is open yet. Check back once your admin opens one.</p>
         ) : currentManager ? (
-          <ManagerView manager={currentManager} awards={awardsWithLabel} currentCycle={currentCycle} onGiveAward={handleGiveAward} />
+          <ManagerView manager={currentManager} awards={awardsWithLabel} currentCycle={currentCycle} onGiveAward={handleGiveAward} onSetCredits={handleSetCredits} />
         ) : (
           <p className="text-sm text-[var(--muted-foreground)]">Loading your data…</p>
         )}
