@@ -393,14 +393,24 @@ function ManagerView({
 
   const [form, setForm] = useState({ recipientId: '', reason: '', category: AWARD_CATEGORIES[0] })
   const [success, setSuccess] = useState<string | null>(null)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
 
   async function submit() {
     const rep = manager.reportees.find((r) => r.id === form.recipientId)
     if (!rep || !form.reason.trim() || remaining <= 0) return
-    await onGiveAward(rep.id, rep.name, form.reason, form.category)
-    setForm({ recipientId: '', reason: '', category: AWARD_CATEGORIES[0] })
-    setSuccess(rep.name)
-    setTimeout(() => setSuccess(null), 4000)
+    setSubmitting(true)
+    setSubmitError(null)
+    try {
+      await onGiveAward(rep.id, rep.name, form.reason, form.category)
+      setForm({ recipientId: '', reason: '', category: AWARD_CATEGORIES[0] })
+      setSuccess(rep.name)
+      setTimeout(() => setSuccess(null), 4000)
+    } catch {
+      setSubmitError("Couldn't give this award -- your cycle may be out of date. Refresh and try again.")
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -428,6 +438,11 @@ function ManagerView({
           {success && (
             <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm px-4 py-3 rounded-md flex items-center gap-2">
               <span>🏆</span> Award given to <strong>{success}</strong> — {remaining} credit{remaining !== 1 ? 's' : ''} remaining
+            </div>
+          )}
+          {submitError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-md">
+              {submitError}
             </div>
           )}
           {remaining === 0 && (
@@ -483,10 +498,10 @@ function ManagerView({
 
           <button
             className="px-5 py-2.5 bg-[var(--primary)] text-white text-sm font-medium rounded-md hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
-            disabled={!form.recipientId || !form.reason.trim() || remaining === 0 || awardedThisCycle.has(form.recipientId)}
+            disabled={submitting || !form.recipientId || !form.reason.trim() || remaining === 0 || awardedThisCycle.has(form.recipientId)}
             onClick={submit}
           >
-            Give Award — uses 1 credit →
+            {submitting ? 'Giving award…' : 'Give Award — uses 1 credit →'}
           </button>
         </div>
       </div>
@@ -545,10 +560,15 @@ export default function App() {
 
   useEffect(() => {
     if (!user || !role) return
+    // A manager's managerId claim resolves together with role, but guard the
+    // gap anyway rather than passing null into a Firestore doc/query path.
+    if (!isAdmin && !managerId) return
     const unsubs = [
-      isAdmin ? subscribeManagers(setManagers) : subscribeManager(managerId!, (m) => setMyManager(m)),
-      isAdmin ? subscribeReportees({ all: true }, setReportees) : subscribeReportees({ managerId: managerId! }, setReportees),
-      isAdmin ? subscribeAwards({ all: true }, setAwards) : subscribeAwards({ managerId: managerId! }, setAwards),
+      isAdmin ? subscribeManagers(setManagers) : subscribeManager(managerId as string, (m) => setMyManager(m)),
+      isAdmin
+        ? subscribeReportees({ all: true }, setReportees)
+        : subscribeReportees({ managerId: managerId as string }, setReportees),
+      isAdmin ? subscribeAwards({ all: true }, setAwards) : subscribeAwards({ managerId: managerId as string }, setAwards),
       subscribeCurrentCycle(setCurrentCycle),
       subscribeCycles(setCycles),
     ]
@@ -557,9 +577,10 @@ export default function App() {
 
   useEffect(() => {
     if (!currentCycle || !role) return
+    if (!isAdmin && !managerId) return
     return isAdmin
       ? subscribeAllocations(currentCycle.cycleId, { all: true }, setAllocations)
-      : subscribeAllocations(currentCycle.cycleId, { managerId: managerId! }, setAllocations)
+      : subscribeAllocations(currentCycle.cycleId, { managerId: managerId as string }, setAllocations)
   }, [currentCycle?.cycleId, isAdmin, managerId, role])
 
   if (loading) {

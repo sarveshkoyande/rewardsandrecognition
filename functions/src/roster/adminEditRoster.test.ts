@@ -41,6 +41,10 @@ vi.mock('firebase-admin/firestore', () => ({
       async set(data: Record<string, unknown>) {
         docStore[path] = data
       },
+      async get() {
+        const data = docStore[path]
+        return { exists: data !== undefined, data: () => data }
+      },
     }),
   }),
 }))
@@ -84,20 +88,38 @@ describe('adminEditRoster', () => {
     expect(store.reportees).toHaveLength(0)
   })
 
-  it('setAllocation writes an explicit value', async () => {
+  it('setAllocation writes an explicit value for the current cycle', async () => {
+    docStore['meta/currentCycle'] = { cycleId: 'c1', label: 'Sep 2026' }
     await (adminEditRoster as unknown as Handler)(
       admin({ action: 'setAllocation', cycleId: 'c1', managerId: 'm1', allocated: 7 })
     )
     expect(docStore['cycles/c1/allocations/m1']).toEqual({ managerId: 'm1', allocated: 7 })
   })
 
-  it('resetAllocation recomputes from reportee count', async () => {
+  it('resetAllocation recomputes from reportee count for the current cycle', async () => {
+    docStore['meta/currentCycle'] = { cycleId: 'c1', label: 'Sep 2026' }
     store.reportees = [
       { id: 'r1', data: { managerId: 'm1' } },
       { id: 'r2', data: { managerId: 'm1' } },
     ]
     await (adminEditRoster as unknown as Handler)(admin({ action: 'resetAllocation', cycleId: 'c1', managerId: 'm1' }))
     expect(docStore['cycles/c1/allocations/m1']).toEqual({ managerId: 'm1', allocated: 0 })
+  })
+
+  it('rejects setAllocation against a closed (non-current) cycle', async () => {
+    docStore['meta/currentCycle'] = { cycleId: 'c2', label: 'Oct 2026' }
+    await expect(
+      (adminEditRoster as unknown as Handler)(
+        admin({ action: 'setAllocation', cycleId: 'c1', managerId: 'm1', allocated: 7 })
+      )
+    ).rejects.toMatchObject({ code: 'failed-precondition' })
+    expect(docStore['cycles/c1/allocations/m1']).toBeUndefined()
+  })
+
+  it('rejects resetAllocation when no cycle has ever been opened', async () => {
+    await expect(
+      (adminEditRoster as unknown as Handler)(admin({ action: 'resetAllocation', cycleId: 'c1', managerId: 'm1' }))
+    ).rejects.toMatchObject({ code: 'failed-precondition' })
   })
 
   it('rejects a non-admin caller', async () => {

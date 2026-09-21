@@ -1,10 +1,23 @@
 import { HttpsError, onCall } from 'firebase-functions/v2/https'
-import { getFirestore } from 'firebase-admin/firestore'
+import { getFirestore, type Firestore } from 'firebase-admin/firestore'
 import { calcDefaultCredits } from '../lib/credits'
 
 function requireAdmin(auth: { token?: Record<string, any> } | undefined) {
   if (!auth || auth.token?.role !== 'admin') {
     throw new HttpsError('permission-denied', 'Only an admin can edit the roster.')
+  }
+}
+
+/**
+ * resetAllocation/setAllocation only ever apply to the open cycle -- a
+ * closed cycle's allocation snapshot is historical and must stay fixed
+ * (R7, AE3). Without this check a stale client reference could silently
+ * rewrite a past cycle's reported allocation.
+ */
+async function requireCurrentCycle(db: Firestore, cycleId: string) {
+  const metaSnap = await db.doc('meta/currentCycle').get()
+  if (!metaSnap.exists || metaSnap.data()?.cycleId !== cycleId) {
+    throw new HttpsError('failed-precondition', 'This cycle is closed and can no longer be edited.')
   }
 }
 
@@ -54,6 +67,7 @@ export const adminEditRoster = onCall<EditAction>(async (request) => {
       if (!data.cycleId || !data.managerId) {
         throw new HttpsError('invalid-argument', 'cycleId and managerId are required.')
       }
+      await requireCurrentCycle(db, data.cycleId)
       const reporteesSnap = await db
         .collection('reportees')
         .where('managerId', '==', data.managerId)
@@ -68,6 +82,7 @@ export const adminEditRoster = onCall<EditAction>(async (request) => {
       if (!data.cycleId || !data.managerId || typeof data.allocated !== 'number' || data.allocated < 0) {
         throw new HttpsError('invalid-argument', 'cycleId, managerId, and a non-negative allocated value are required.')
       }
+      await requireCurrentCycle(db, data.cycleId)
       await db
         .doc(`cycles/${data.cycleId}/allocations/${data.managerId}`)
         .set({ managerId: data.managerId, allocated: data.allocated })
