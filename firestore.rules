@@ -1,0 +1,68 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAdmin() {
+      return request.auth != null && request.auth.token.role == 'admin';
+    }
+
+    function isManager() {
+      return request.auth != null && request.auth.token.role == 'manager';
+    }
+
+    function isOwnManagerId(managerId) {
+      return isManager() && request.auth.token.managerId == managerId;
+    }
+
+    function currentCycleId() {
+      return get(/databases/$(database)/documents/meta/currentCycle).data.cycleId;
+    }
+
+    // managers, reportees, cycles, and allocations are written only by the
+    // Admin SDK (importRoster / openCycle / adminEditRoster Cloud Functions),
+    // which bypasses these rules -- so no client write path is granted here
+    // (KTD2, KTD5).
+    match /managers/{managerId} {
+      allow read: if isAdmin() || isOwnManagerId(managerId);
+      allow write: if false;
+    }
+
+    match /reportees/{reporteeId} {
+      allow read: if isAdmin() || isOwnManagerId(resource.data.managerId);
+      allow write: if false;
+    }
+
+    match /cycles/{cycleId} {
+      allow read: if isAdmin() || isManager();
+      allow write: if false;
+
+      match /allocations/{managerId} {
+        allow read: if isAdmin() || isOwnManagerId(managerId);
+        allow write: if false;
+      }
+    }
+
+    match /meta/currentCycle {
+      allow read: if isAdmin() || isManager();
+      allow write: if false;
+    }
+
+    match /admins/{adminId} {
+      // Only the Admin SDK ever reads this collection (rosterLookup runs
+      // with admin privileges inside beforeSignIn); no client access.
+      allow read, write: if false;
+    }
+
+    // Awards are the one collection managers write directly (R10, KTD5):
+    // a manager may create an award for themselves in the current cycle,
+    // and read only their own; an admin reads all. No client update/delete --
+    // an award is an append-only record of what already happened.
+    match /awards/{awardId} {
+      allow read: if isAdmin() || isOwnManagerId(resource.data.managerId);
+      allow create: if isOwnManagerId(request.resource.data.managerId)
+                    && request.resource.data.cycleId == currentCycleId();
+      allow update, delete: if false;
+    }
+  }
+}

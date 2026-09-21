@@ -1,111 +1,40 @@
-import { useState } from 'react'
-
-type Role = 'admin' | 'manager'
-
-interface Reportee {
-  id: string
-  name: string
-  designation: string
-}
-
-interface Manager {
-  id: string
-  name: string
-  designation: string
-  credits: number          // total credits allocated (editable by admin)
-  reportees: Reportee[]
-}
-
-interface Award {
-  id: string
-  managerId: string
-  managerName: string
-  recipientId: string
-  recipientName: string
-  reason: string
-  category: string
-  date: string
-  cycleLabel: string       // e.g. "Sep 2026", "Aug 2026"
-}
+import { useEffect, useState } from 'react'
+import { useAuth } from './hooks/useAuth'
+import { SignInScreen } from './components/SignInScreen'
+import { BlockedScreen } from './components/BlockedScreen'
+import { RosterImport } from './components/RosterImport'
+import { OpenCycleButton } from './components/OpenCycleButton'
+import {
+  adminEditRosterCall,
+  giveAward,
+  subscribeAllocations,
+  subscribeAwards,
+  subscribeCurrentCycle,
+  subscribeCycles,
+  subscribeManager,
+  subscribeManagers,
+  subscribeReportees,
+  type Allocation,
+  type Award,
+  type CurrentCycle,
+  type Cycle,
+  type Manager,
+  type Reportee,
+} from './lib/firestore'
 
 const AWARD_CATEGORIES = ['Star Performer', 'Team Player', 'Innovation', 'Client Excellence', 'Above & Beyond']
-const CURRENT_CYCLE = 'Sep 2026'
 
-function calcDefaultCredits(reporteeCount: number) {
-  return Math.floor(reporteeCount * 0.4)
+// A manager combined with this cycle's data, matching the shape the
+// dashboard/people/manager views render against.
+interface ManagerWithData extends Manager {
+  credits: number
+  reportees: Reportee[]
+  currentCycleId?: string
 }
 
-const initialManagers: Manager[] = [
-  {
-    id: 'm1',
-    name: 'Ashruti Sharma',
-    designation: 'Engineering Manager',
-    credits: calcDefaultCredits(10), // 4
-    reportees: [
-      { id: 'r1', name: 'Sanket Patil', designation: 'Senior Engineer' },
-      { id: 'r2', name: 'Sarvesh Koyande', designation: 'Engineer' },
-      { id: 'r3', name: 'Priya Nair', designation: 'Engineer' },
-      { id: 'r4', name: 'Devika Rao', designation: 'Engineer' },
-      { id: 'r5', name: 'Aman Trivedi', designation: 'Lead Engineer' },
-    ],
-  },
-  {
-    id: 'm2',
-    name: 'Shashwat Mehta',
-    designation: 'Product Manager',
-    credits: calcDefaultCredits(8), // 3
-    reportees: [
-      { id: 'r6', name: 'Tanvi Kapoor', designation: 'Product Analyst' },
-      { id: 'r7', name: 'Rohan Gupta', designation: 'Business Analyst' },
-      { id: 'r8', name: 'Meera Joshi', designation: 'Associate PM' },
-    ],
-  },
-  {
-    id: 'm3',
-    name: 'Suruchi Agarwal',
-    designation: 'Design Lead',
-    credits: calcDefaultCredits(5), // 2
-    reportees: [
-      { id: 'r9', name: 'Ananya Singh', designation: 'UI Designer' },
-      { id: 'r10', name: 'Karthik Rao', designation: 'UX Researcher' },
-    ],
-  },
-]
-
-const initialAwards: Award[] = [
-  // Current cycle
-  {
-    id: 'a1', managerId: 'm1', managerName: 'Ashruti Sharma',
-    recipientId: 'r1', recipientName: 'Sanket Patil',
-    reason: 'Led the architecture revamp with zero downtime',
-    category: 'Innovation', date: '2026-09-18', cycleLabel: CURRENT_CYCLE,
-  },
-  {
-    id: 'a2', managerId: 'm2', managerName: 'Shashwat Mehta',
-    recipientId: 'r6', recipientName: 'Tanvi Kapoor',
-    reason: 'Exceptional delivery on the Q3 roadmap planning',
-    category: 'Star Performer', date: '2026-09-10', cycleLabel: CURRENT_CYCLE,
-  },
-  // Previous cycles
-  {
-    id: 'a3', managerId: 'm1', managerName: 'Ashruti Sharma',
-    recipientId: 'r2', recipientName: 'Sarvesh Koyande',
-    reason: 'Consistently supported teammates during sprint crunch',
-    category: 'Team Player', date: '2026-08-20', cycleLabel: 'Aug 2026',
-  },
-  {
-    id: 'a4', managerId: 'm3', managerName: 'Suruchi Agarwal',
-    recipientId: 'r9', recipientName: 'Ananya Singh',
-    reason: 'Delivered the design system components ahead of schedule',
-    category: 'Above & Beyond', date: '2026-08-14', cycleLabel: 'Aug 2026',
-  },
-  {
-    id: 'a5', managerId: 'm2', managerName: 'Shashwat Mehta',
-    recipientId: 'r7', recipientName: 'Rohan Gupta',
-    reason: 'Outstanding client engagement during product review',
-    category: 'Client Excellence', date: '2026-07-22', cycleLabel: 'Jul 2026',
-  },
-]
+interface AwardWithLabel extends Award {
+  cycleLabel: string
+}
 
 function Badge({ label }: { label: string }) {
   return (
@@ -115,8 +44,7 @@ function Badge({ label }: { label: string }) {
   )
 }
 
-function CycleBadge({ label }: { label: string }) {
-  const isCurrent = label === CURRENT_CYCLE
+function CycleBadge({ label, isCurrent }: { label: string; isCurrent: boolean }) {
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-mono font-medium ${isCurrent ? 'bg-[var(--primary)] text-white' : 'bg-[var(--secondary)] text-[var(--muted-foreground)]'}`}>
       {label}
@@ -124,7 +52,6 @@ function CycleBadge({ label }: { label: string }) {
   )
 }
 
-// ─── Credit Pip display ────────────────────────────────────────────────────────
 function CreditPips({ total, used }: { total: number; used: number }) {
   return (
     <div className="flex gap-1 flex-wrap">
@@ -132,9 +59,7 @@ function CreditPips({ total, used }: { total: number; used: number }) {
         <div
           key={i}
           className={`w-5 h-5 rounded-full border-2 transition-colors ${
-            i < used
-              ? 'bg-[var(--primary)] border-[var(--primary)]'
-              : 'bg-transparent border-[var(--border)]'
+            i < used ? 'bg-[var(--primary)] border-[var(--primary)]' : 'bg-transparent border-[var(--border)]'
           }`}
         />
       ))}
@@ -143,21 +68,26 @@ function CreditPips({ total, used }: { total: number; used: number }) {
 }
 
 // ─── Admin: Overview ──────────────────────────────────────────────────────────
-function AdminDashboard({ managers, awards }: { managers: Manager[]; awards: Award[] }) {
-  const currentAwards = awards.filter((a) => a.cycleLabel === CURRENT_CYCLE)
+function AdminDashboard({
+  managers,
+  awards,
+  currentCycleLabel,
+}: {
+  managers: ManagerWithData[]
+  awards: AwardWithLabel[]
+  currentCycleLabel: string
+}) {
+  const currentAwards = awards.filter((a) => a.cycleLabel === currentCycleLabel)
   const totalCredits = managers.reduce((s, m) => s + m.credits, 0)
-  const totalUsed = managers.reduce((s, m) => {
-    return s + currentAwards.filter((a) => a.managerId === m.id).length
-  }, 0)
+  const totalUsed = managers.reduce((s, m) => s + currentAwards.filter((a) => a.managerId === m.id).length, 0)
 
   return (
     <div className="space-y-8">
-      {/* KPIs */}
       <div className="grid grid-cols-3 gap-4">
         {[
           { label: 'Total Credits This Cycle', value: totalCredits, sub: `across ${managers.length} managers` },
           { label: 'Credits Used', value: totalUsed, sub: `${totalCredits - totalUsed} remaining` },
-          { label: 'Awards Given', value: currentAwards.length, sub: CURRENT_CYCLE },
+          { label: 'Awards Given', value: currentAwards.length, sub: currentCycleLabel },
         ].map((k) => (
           <div key={k.label} className="bg-[var(--card)] border border-[var(--border)] rounded-lg p-5">
             <p className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-widest mb-1">{k.label}</p>
@@ -167,11 +97,13 @@ function AdminDashboard({ managers, awards }: { managers: Manager[]; awards: Awa
         ))}
       </div>
 
-      {/* Manager credit table */}
       <div className="bg-[var(--card)] border border-[var(--border)] rounded-lg overflow-hidden">
-        <div className="px-5 py-4 border-b border-[var(--border)]">
-          <h2 className="font-serif text-lg font-semibold">Credit Utilisation — {CURRENT_CYCLE}</h2>
-          <p className="text-xs text-[var(--muted-foreground)] mt-0.5">1 credit = 1 award · Credits = 40% of reportee headcount</p>
+        <div className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
+          <div>
+            <h2 className="font-serif text-lg font-semibold">Credit Utilisation — {currentCycleLabel}</h2>
+            <p className="text-xs text-[var(--muted-foreground)] mt-0.5">1 credit = 1 award · Credits = 40% of reportee headcount</p>
+          </div>
+          <OpenCycleButton />
         </div>
         <table className="w-full text-sm">
           <thead>
@@ -208,10 +140,9 @@ function AdminDashboard({ managers, awards }: { managers: Manager[]; awards: Awa
         </table>
       </div>
 
-      {/* Who was awarded this cycle */}
       <div className="bg-[var(--card)] border border-[var(--border)] rounded-lg overflow-hidden">
         <div className="px-5 py-4 border-b border-[var(--border)]">
-          <h2 className="font-serif text-lg font-semibold">Awards Given — {CURRENT_CYCLE}</h2>
+          <h2 className="font-serif text-lg font-semibold">Awards Given — {currentCycleLabel}</h2>
         </div>
         {currentAwards.length === 0 ? (
           <p className="px-5 py-10 text-sm text-[var(--muted-foreground)] text-center">No awards given yet this cycle.</p>
@@ -241,29 +172,20 @@ function AdminDashboard({ managers, awards }: { managers: Manager[]; awards: Awa
         )}
       </div>
 
-      {/* Historical awards */}
-      <HistoryTable awards={awards.filter((a) => a.cycleLabel !== CURRENT_CYCLE)} title="Past Awards — Previous Cycles" />
+      <HistoryTable
+        awards={awards.filter((a) => a.cycleLabel !== currentCycleLabel)}
+        title="Past Awards — Previous Cycles"
+        currentCycleLabel={currentCycleLabel}
+      />
     </div>
   )
 }
 
 // ─── Admin: People ────────────────────────────────────────────────────────────
-function AdminPeopleView({
-  managers,
-  onUpdateCredits,
-  onAddManager,
-  onAddReportee,
-  onRemoveReportee,
-}: {
-  managers: Manager[]
-  onUpdateCredits: (managerId: string, credits: number) => void
-  onAddManager: (name: string, designation: string) => void
-  onAddReportee: (managerId: string, name: string, designation: string) => void
-  onRemoveReportee: (managerId: string, reporteeId: string) => void
-}) {
+function AdminPeopleView({ managers }: { managers: ManagerWithData[] }) {
   const [editingCredits, setEditingCredits] = useState<{ id: string; value: string } | null>(null)
   const [addManager, setAddManager] = useState(false)
-  const [newManager, setNewManager] = useState({ name: '', designation: '' })
+  const [newManager, setNewManager] = useState({ name: '', designation: '', email: '' })
   const [addReportee, setAddReportee] = useState<string | null>(null)
   const [newReportee, setNewReportee] = useState({ name: '', designation: '' })
 
@@ -282,31 +204,23 @@ function AdminPeopleView({
         </button>
       </div>
 
+      <RosterImport />
+
       {addManager && (
         <div className="bg-[var(--card)] border border-[var(--primary)] rounded-lg p-5">
           <h3 className="font-medium mb-3 text-sm">New Manager</h3>
-          <div className="grid grid-cols-2 gap-3 mb-3">
-            <input
-              autoFocus
-              className="border border-[var(--border)] rounded px-3 py-2 text-sm bg-[var(--background)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
-              placeholder="Full name"
-              value={newManager.name}
-              onChange={(e) => setNewManager({ ...newManager, name: e.target.value })}
-            />
-            <input
-              className="border border-[var(--border)] rounded px-3 py-2 text-sm bg-[var(--background)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
-              placeholder="Designation"
-              value={newManager.designation}
-              onChange={(e) => setNewManager({ ...newManager, designation: e.target.value })}
-            />
+          <div className="grid grid-cols-3 gap-3 mb-3">
+            <input autoFocus className="border border-[var(--border)] rounded px-3 py-2 text-sm bg-[var(--background)]" placeholder="Full name" value={newManager.name} onChange={(e) => setNewManager({ ...newManager, name: e.target.value })} />
+            <input className="border border-[var(--border)] rounded px-3 py-2 text-sm bg-[var(--background)]" placeholder="Google email" value={newManager.email} onChange={(e) => setNewManager({ ...newManager, email: e.target.value })} />
+            <input className="border border-[var(--border)] rounded px-3 py-2 text-sm bg-[var(--background)]" placeholder="Designation" value={newManager.designation} onChange={(e) => setNewManager({ ...newManager, designation: e.target.value })} />
           </div>
           <div className="flex gap-2">
             <button
               className="px-4 py-2 bg-[var(--primary)] text-white text-sm rounded hover:opacity-90 transition-opacity"
-              onClick={() => {
-                if (newManager.name.trim()) {
-                  onAddManager(newManager.name.trim(), newManager.designation.trim())
-                  setNewManager({ name: '', designation: '' })
+              onClick={async () => {
+                if (newManager.name.trim() && newManager.email.trim()) {
+                  await adminEditRosterCall({ action: 'addManager', ...newManager })
+                  setNewManager({ name: '', designation: '', email: '' })
                   setAddManager(false)
                 }
               }}
@@ -325,41 +239,35 @@ function AdminPeopleView({
             </div>
             <div className="flex items-center gap-4">
               <div className="text-right">
-                <p className="text-xs text-[var(--muted-foreground)] mb-1">Credits Allocated</p>
+                <p className="text-xs text-[var(--muted-foreground)] mb-1">Credits Allocated (this cycle)</p>
                 {editingCredits?.id === m.id ? (
                   <div className="flex items-center gap-2">
                     <input
                       autoFocus
                       type="number"
-                      className="border border-[var(--border)] rounded px-2 py-1 text-sm font-mono w-16 text-center bg-[var(--background)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
+                      className="border border-[var(--border)] rounded px-2 py-1 text-sm font-mono w-16 text-center bg-[var(--background)]"
                       value={editingCredits.value}
                       onChange={(e) => setEditingCredits({ ...editingCredits, value: e.target.value })}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          const v = parseInt(editingCredits.value)
-                          if (!isNaN(v) && v >= 0) onUpdateCredits(m.id, v)
-                          setEditingCredits(null)
-                        }
-                        if (e.key === 'Escape') setEditingCredits(null)
-                      }}
                     />
-                    <button className="text-xs px-2 py-1 bg-[var(--primary)] text-white rounded" onClick={() => {
-                      const v = parseInt(editingCredits.value)
-                      if (!isNaN(v) && v >= 0) onUpdateCredits(m.id, v)
-                      setEditingCredits(null)
-                    }}>Save</button>
+                    <button
+                      className="text-xs px-2 py-1 bg-[var(--primary)] text-white rounded"
+                      onClick={async () => {
+                        const v = parseInt(editingCredits.value)
+                        if (!isNaN(v) && v >= 0 && m.currentCycleId) {
+                          await adminEditRosterCall({ action: 'setAllocation', cycleId: m.currentCycleId, managerId: m.id, allocated: v })
+                        }
+                        setEditingCredits(null)
+                      }}
+                    >Save</button>
                     <button className="text-xs px-2 py-1 border border-[var(--border)] rounded" onClick={() => setEditingCredits(null)}>✕</button>
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
                     <span className="font-mono font-bold text-lg">{m.credits}</span>
-                    <button
-                      className="text-xs text-[var(--muted-foreground)] hover:text-[var(--primary)] transition-colors"
-                      onClick={() => setEditingCredits({ id: m.id, value: m.credits.toString() })}
-                    >✎</button>
+                    <button className="text-xs text-[var(--muted-foreground)] hover:text-[var(--primary)] transition-colors" onClick={() => setEditingCredits({ id: m.id, value: m.credits.toString() })}>✎</button>
                     <button
                       className="text-xs text-[var(--muted-foreground)] hover:text-[var(--primary)] transition-colors border border-[var(--border)] px-1.5 py-0.5 rounded"
-                      onClick={() => onUpdateCredits(m.id, calcDefaultCredits(m.reportees.length))}
+                      onClick={() => m.currentCycleId && adminEditRosterCall({ action: 'resetAllocation', cycleId: m.currentCycleId, managerId: m.id })}
                       title="Reset to 40% of headcount"
                     >↺ auto</button>
                   </div>
@@ -382,27 +290,30 @@ function AdminPeopleView({
                   <td className="px-5 py-2.5 font-medium">{r.name}</td>
                   <td className="px-5 py-2.5 text-[var(--muted-foreground)]">{r.designation}</td>
                   <td className="px-5 py-2.5 text-right">
-                    <button className="text-xs text-red-400 hover:text-red-600 transition-colors" onClick={() => onRemoveReportee(m.id, r.id)}>Remove</button>
+                    <button className="text-xs text-red-400 hover:text-red-600 transition-colors" onClick={() => adminEditRosterCall({ action: 'removeReportee', reporteeId: r.id })}>Remove</button>
                   </td>
                 </tr>
               ))}
               {addReportee === m.id ? (
                 <tr className="border-t border-[var(--border)] bg-amber-50/50">
                   <td className="px-5 py-2.5">
-                    <input autoFocus className="border border-[var(--border)] rounded px-2 py-1 text-sm w-full bg-white focus:outline-none focus:ring-1 focus:ring-[var(--ring)]" placeholder="Full name" value={newReportee.name} onChange={(e) => setNewReportee({ ...newReportee, name: e.target.value })} />
+                    <input autoFocus className="border border-[var(--border)] rounded px-2 py-1 text-sm w-full bg-white" placeholder="Full name" value={newReportee.name} onChange={(e) => setNewReportee({ ...newReportee, name: e.target.value })} />
                   </td>
                   <td className="px-5 py-2.5">
-                    <input className="border border-[var(--border)] rounded px-2 py-1 text-sm w-full bg-white focus:outline-none focus:ring-1 focus:ring-[var(--ring)]" placeholder="Designation" value={newReportee.designation} onChange={(e) => setNewReportee({ ...newReportee, designation: e.target.value })} />
+                    <input className="border border-[var(--border)] rounded px-2 py-1 text-sm w-full bg-white" placeholder="Designation" value={newReportee.designation} onChange={(e) => setNewReportee({ ...newReportee, designation: e.target.value })} />
                   </td>
                   <td className="px-5 py-2.5 text-right">
                     <div className="flex gap-2 justify-end">
-                      <button className="text-xs px-2 py-1 bg-[var(--primary)] text-white rounded" onClick={() => {
-                        if (newReportee.name.trim()) {
-                          onAddReportee(m.id, newReportee.name.trim(), newReportee.designation.trim())
-                          setNewReportee({ name: '', designation: '' })
-                          setAddReportee(null)
-                        }
-                      }}>Add</button>
+                      <button
+                        className="text-xs px-2 py-1 bg-[var(--primary)] text-white rounded"
+                        onClick={async () => {
+                          if (newReportee.name.trim()) {
+                            await adminEditRosterCall({ action: 'addReportee', managerId: m.id, ...newReportee })
+                            setNewReportee({ name: '', designation: '' })
+                            setAddReportee(null)
+                          }
+                        }}
+                      >Add</button>
                       <button className="text-xs px-2 py-1 border border-[var(--border)] rounded hover:bg-[var(--secondary)] transition-colors" onClick={() => { setAddReportee(null); setNewReportee({ name: '', designation: '' }) }}>Cancel</button>
                     </div>
                   </td>
@@ -423,9 +334,9 @@ function AdminPeopleView({
 }
 
 // ─── History table (shared) ───────────────────────────────────────────────────
-function HistoryTable({ awards, title }: { awards: Award[]; title: string }) {
+function HistoryTable({ awards, title, currentCycleLabel }: { awards: AwardWithLabel[]; title: string; currentCycleLabel: string }) {
   if (awards.length === 0) return null
-  const grouped = awards.reduce<Record<string, Award[]>>((acc, a) => {
+  const grouped = awards.reduce<Record<string, AwardWithLabel[]>>((acc, a) => {
     ;(acc[a.cycleLabel] = acc[a.cycleLabel] || []).push(a)
     return acc
   }, {})
@@ -441,7 +352,7 @@ function HistoryTable({ awards, title }: { awards: Award[]; title: string }) {
         .map(([cycle, cycleAwards]) => (
           <div key={cycle}>
             <div className="px-5 py-2 bg-[var(--secondary)]/60 border-t border-[var(--border)] flex items-center gap-2">
-              <CycleBadge label={cycle} />
+              <CycleBadge label={cycle} isCurrent={cycle === currentCycleLabel} />
               <span className="text-xs text-[var(--muted-foreground)]">{cycleAwards.length} award{cycleAwards.length !== 1 ? 's' : ''}</span>
             </div>
             <table className="w-full text-sm">
@@ -467,40 +378,37 @@ function HistoryTable({ awards, title }: { awards: Award[]; title: string }) {
 function ManagerView({
   manager,
   awards,
+  currentCycle,
   onGiveAward,
 }: {
-  manager: Manager
-  awards: Award[]
-  onGiveAward: (managerId: string, recipientId: string, recipientName: string, reason: string, category: string) => void
+  manager: ManagerWithData
+  awards: AwardWithLabel[]
+  currentCycle: CurrentCycle
+  onGiveAward: (recipientId: string, recipientName: string, reason: string, category: string) => Promise<void>
 }) {
-  const myCurrentAwards = awards.filter((a) => a.managerId === manager.id && a.cycleLabel === CURRENT_CYCLE)
+  const myCurrentAwards = awards.filter((a) => a.cycleId === currentCycle.cycleId)
   const used = myCurrentAwards.length
   const remaining = manager.credits - used
-
-  // Who has already been awarded this cycle by this manager
   const awardedThisCycle = new Set(myCurrentAwards.map((a) => a.recipientId))
 
   const [form, setForm] = useState({ recipientId: '', reason: '', category: AWARD_CATEGORIES[0] })
   const [success, setSuccess] = useState<string | null>(null)
 
-  function submit() {
+  async function submit() {
     const rep = manager.reportees.find((r) => r.id === form.recipientId)
     if (!rep || !form.reason.trim() || remaining <= 0) return
-    onGiveAward(manager.id, rep.id, rep.name, form.reason, form.category)
+    await onGiveAward(rep.id, rep.name, form.reason, form.category)
     setForm({ recipientId: '', reason: '', category: AWARD_CATEGORIES[0] })
     setSuccess(rep.name)
     setTimeout(() => setSuccess(null), 4000)
   }
 
-  const allMyAwards = awards.filter((a) => a.managerId === manager.id)
-
   return (
     <div className="space-y-6 max-w-3xl">
-      {/* Credit status card */}
       <div className="bg-[var(--card)] border border-[var(--border)] rounded-lg p-5">
         <div className="flex items-start justify-between mb-4">
           <div>
-            <p className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-widest mb-1">Your Credits — {CURRENT_CYCLE}</p>
+            <p className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-widest mb-1">Your Credits — {currentCycle.label}</p>
             <div className="flex items-baseline gap-2">
               <p className="font-serif text-5xl font-semibold text-[var(--foreground)]">{remaining}</p>
               <p className="text-[var(--muted-foreground)] text-sm">/ {manager.credits} remaining</p>
@@ -511,7 +419,6 @@ function ManagerView({
         <CreditPips total={manager.credits} used={used} />
       </div>
 
-      {/* Award form */}
       <div className="bg-[var(--card)] border border-[var(--border)] rounded-lg overflow-hidden">
         <div className="px-5 py-4 border-b border-[var(--border)]">
           <h2 className="font-serif text-lg font-semibold">Give a Recognition Award</h2>
@@ -532,7 +439,7 @@ function ManagerView({
           <div>
             <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5">Select Team Member</label>
             <select
-              className="w-full border border-[var(--border)] rounded px-3 py-2 text-sm bg-[var(--background)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)] disabled:opacity-50"
+              className="w-full border border-[var(--border)] rounded px-3 py-2 text-sm bg-[var(--background)] disabled:opacity-50"
               value={form.recipientId}
               onChange={(e) => setForm({ ...form, recipientId: e.target.value })}
               disabled={remaining === 0}
@@ -555,9 +462,7 @@ function ManagerView({
                   disabled={remaining === 0}
                   onClick={() => setForm({ ...form, category: c })}
                   className={`px-3 py-1.5 rounded text-xs font-medium border transition-colors disabled:opacity-40 ${
-                    form.category === c
-                      ? 'bg-[var(--primary)] border-[var(--primary)] text-white'
-                      : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--primary)]'
+                    form.category === c ? 'bg-[var(--primary)] border-[var(--primary)] text-white' : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--primary)]'
                   }`}
                 >{c}</button>
               ))}
@@ -567,7 +472,7 @@ function ManagerView({
           <div>
             <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5">Reason for Recognition</label>
             <textarea
-              className="w-full border border-[var(--border)] rounded px-3 py-2 text-sm bg-[var(--background)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)] resize-none disabled:opacity-50"
+              className="w-full border border-[var(--border)] rounded px-3 py-2 text-sm bg-[var(--background)] resize-none disabled:opacity-50"
               rows={3}
               placeholder="Describe what this person did that deserves recognition..."
               value={form.reason}
@@ -586,11 +491,10 @@ function ManagerView({
         </div>
       </div>
 
-      {/* Current cycle history */}
       {myCurrentAwards.length > 0 && (
         <div className="bg-[var(--card)] border border-[var(--border)] rounded-lg overflow-hidden">
           <div className="px-5 py-4 border-b border-[var(--border)]">
-            <h2 className="font-serif text-lg font-semibold">My Awards — {CURRENT_CYCLE}</h2>
+            <h2 className="font-serif text-lg font-semibold">My Awards — {currentCycle.label}</h2>
           </div>
           <table className="w-full text-sm">
             <thead>
@@ -615,82 +519,99 @@ function ManagerView({
         </div>
       )}
 
-      {/* Past cycles reference */}
       <HistoryTable
-        awards={allMyAwards.filter((a) => a.cycleLabel !== CURRENT_CYCLE)}
+        awards={awards.filter((a) => a.cycleId !== currentCycle.cycleId)}
         title="Previous Cycle Awards — Reference"
+        currentCycleLabel={currentCycle.label}
       />
     </div>
   )
 }
 
 // ─── Shell ─────────────────────────────────────────────────────────────────────
-const ADMIN_USERS = [
-  { id: 'admin1', name: 'Jinan Muneer', role: 'admin' as Role, initials: 'JM' },
-  { id: 'admin2', name: 'Swethali', role: 'admin' as Role, initials: 'SW' },
-  { id: 'admin3', name: 'Rajeev', role: 'admin' as Role, initials: 'RK' },
-]
-
-const MANAGER_USERS = [
-  { id: 'm1', name: 'Ashruti Sharma', role: 'manager' as Role, initials: 'AS' },
-  { id: 'm2', name: 'Shashwat Mehta', role: 'manager' as Role, initials: 'SM' },
-  { id: 'm3', name: 'Suruchi Agarwal', role: 'manager' as Role, initials: 'SU' },
-]
-
-const ALL_USERS = [...ADMIN_USERS, ...MANAGER_USERS]
-
 export default function App() {
-  const [currentUser, setCurrentUser] = useState(ALL_USERS[0])
+  const { loading, user, role, managerId, blockedMessage, signInWithGoogle, signOut } = useAuth()
   const [adminTab, setAdminTab] = useState<'dashboard' | 'people'>('dashboard')
-  const [managers, setManagers] = useState<Manager[]>(initialManagers)
-  const [awards, setAwards] = useState<Award[]>(initialAwards)
 
-  function updateCredits(managerId: string, credits: number) {
-    setManagers((ms) => ms.map((m) => m.id === managerId ? { ...m, credits } : m))
+  const [managers, setManagers] = useState<Manager[]>([])
+  const [myManager, setMyManager] = useState<Manager | null>(null)
+  const [reportees, setReportees] = useState<Reportee[]>([])
+  const [awards, setAwards] = useState<Award[]>([])
+  const [currentCycle, setCurrentCycle] = useState<CurrentCycle | null>(null)
+  const [cycles, setCycles] = useState<Cycle[]>([])
+  const [allocations, setAllocations] = useState<Allocation[]>([])
+
+  const isAdmin = role === 'admin'
+
+  useEffect(() => {
+    if (!user || !role) return
+    const unsubs = [
+      isAdmin ? subscribeManagers(setManagers) : subscribeManager(managerId!, (m) => setMyManager(m)),
+      isAdmin ? subscribeReportees({ all: true }, setReportees) : subscribeReportees({ managerId: managerId! }, setReportees),
+      isAdmin ? subscribeAwards({ all: true }, setAwards) : subscribeAwards({ managerId: managerId! }, setAwards),
+      subscribeCurrentCycle(setCurrentCycle),
+      subscribeCycles(setCycles),
+    ]
+    return () => unsubs.forEach((u) => u())
+  }, [user, role, managerId, isAdmin])
+
+  useEffect(() => {
+    if (!currentCycle || !role) return
+    return isAdmin
+      ? subscribeAllocations(currentCycle.cycleId, { all: true }, setAllocations)
+      : subscribeAllocations(currentCycle.cycleId, { managerId: managerId! }, setAllocations)
+  }, [currentCycle?.cycleId, isAdmin, managerId, role])
+
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center text-sm text-[var(--muted-foreground)]">Loading…</div>
+  }
+  if (blockedMessage) {
+    return <BlockedScreen message={blockedMessage} onRetry={signInWithGoogle} />
+  }
+  if (!user || !role) {
+    return <SignInScreen onSignIn={signInWithGoogle} />
   }
 
-  function addManager(name: string, designation: string) {
-    setManagers((ms) => [...ms, { id: `m${Date.now()}`, name, designation, credits: 0, reportees: [] }])
+  const cycleLabelById = new Map(cycles.map((c) => [c.id, c.label]))
+  const allocationByManagerId = new Map(allocations.map((a) => [a.managerId, a.allocated]))
+  const reporteesByManagerId = new Map<string, Reportee[]>()
+  for (const r of reportees) {
+    reporteesByManagerId.set(r.managerId, [...(reporteesByManagerId.get(r.managerId) ?? []), r])
   }
+  const awardsWithLabel: AwardWithLabel[] = awards.map((a) => ({
+    ...a,
+    cycleLabel: cycleLabelById.get(a.cycleId) ?? a.cycleId,
+  }))
 
-  function addReportee(managerId: string, name: string, designation: string) {
-    setManagers((ms) =>
-      ms.map((m) =>
-        m.id === managerId
-          ? { ...m, reportees: [...m.reportees, { id: `r${Date.now()}`, name, designation }] }
-          : m
-      )
-    )
+  const managersWithData: ManagerWithData[] = managers.map((m) => ({
+    ...m,
+    credits: allocationByManagerId.get(m.id) ?? 0,
+    reportees: reporteesByManagerId.get(m.id) ?? [],
+    currentCycleId: currentCycle?.cycleId,
+  }))
+
+  const currentManager: ManagerWithData | null =
+    !isAdmin && myManager
+      ? {
+          ...myManager,
+          credits: allocations[0]?.allocated ?? 0,
+          reportees: reporteesByManagerId.get(myManager.id) ?? [],
+        }
+      : null
+
+  async function handleGiveAward(recipientId: string, recipientName: string, reason: string, category: string) {
+    if (!currentManager || !currentCycle) return
+    await giveAward({
+      cycleId: currentCycle.cycleId,
+      managerId: currentManager.id,
+      managerName: currentManager.name,
+      recipientId,
+      recipientName,
+      reason,
+      category,
+      date: new Date().toISOString().split('T')[0],
+    })
   }
-
-  function removeReportee(managerId: string, reporteeId: string) {
-    setManagers((ms) =>
-      ms.map((m) =>
-        m.id === managerId ? { ...m, reportees: m.reportees.filter((r) => r.id !== reporteeId) } : m
-      )
-    )
-  }
-
-  function giveAward(managerId: string, recipientId: string, recipientName: string, reason: string, category: string) {
-    const mgr = managers.find((m) => m.id === managerId)!
-    setAwards((as) => [
-      ...as,
-      {
-        id: `a${Date.now()}`,
-        managerId,
-        managerName: mgr.name,
-        recipientId,
-        recipientName,
-        reason,
-        category,
-        date: new Date().toISOString().split('T')[0],
-        cycleLabel: CURRENT_CYCLE,
-      },
-    ])
-  }
-
-  const isAdmin = currentUser.role === 'admin'
-  const currentManager = isAdmin ? null : managers.find((m) => m.id === currentUser.id) ?? null
 
   return (
     <div className="min-h-screen bg-[var(--background)]">
@@ -701,29 +622,11 @@ export default function App() {
               <span className="text-white text-xs font-bold">R</span>
             </div>
             <span className="font-serif font-semibold text-[var(--foreground)]">Rewards & Recognition</span>
-            <span className="text-xs text-[var(--muted-foreground)] font-mono ml-1">{CURRENT_CYCLE}</span>
+            {currentCycle && <span className="text-xs text-[var(--muted-foreground)] font-mono ml-1">{currentCycle.label}</span>}
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-xs text-[var(--muted-foreground)]">Viewing as:</span>
-            <select
-              className="border border-[var(--border)] rounded px-3 py-1.5 text-sm bg-[var(--background)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
-              value={currentUser.id}
-              onChange={(e) => {
-                const u = ALL_USERS.find((u) => u.id === e.target.value)!
-                setCurrentUser(u)
-                setAdminTab('dashboard')
-              }}
-            >
-              <optgroup label="Admins">
-                {ADMIN_USERS.map((u) => <option key={u.id} value={u.id}>{u.name} (Admin)</option>)}
-              </optgroup>
-              <optgroup label="Managers">
-                {MANAGER_USERS.map((u) => <option key={u.id} value={u.id}>{u.name} (Manager)</option>)}
-              </optgroup>
-            </select>
-            <div className="w-8 h-8 rounded-full bg-[var(--primary)] flex items-center justify-center">
-              <span className="text-white text-xs font-semibold">{currentUser.initials}</span>
-            </div>
+            <span className="text-xs text-[var(--muted-foreground)]">{user.displayName ?? user.email} ({isAdmin ? 'Admin' : 'Manager'})</span>
+            <button onClick={signOut} className="text-xs text-[var(--primary)] hover:underline">Sign out</button>
           </div>
         </div>
       </header>
@@ -736,9 +639,7 @@ export default function App() {
                 key={tab}
                 onClick={() => setAdminTab(tab)}
                 className={`px-5 py-3.5 text-sm font-medium border-b-2 transition-colors ${
-                  adminTab === tab
-                    ? 'border-[var(--primary)] text-[var(--primary)]'
-                    : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                  adminTab === tab ? 'border-[var(--primary)] text-[var(--primary)]' : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
                 }`}
               >
                 {tab === 'dashboard' ? 'Overview' : 'People & Structure'}
@@ -749,22 +650,20 @@ export default function App() {
       )}
 
       <main className="max-w-5xl mx-auto px-6 py-8">
-        {isAdmin ? (
+        {!currentCycle ? (
+          <p className="text-sm text-[var(--muted-foreground)]">
+            {isAdmin ? 'No cycle is open yet. Open one from People & Structure to get started.' : 'No award cycle is open yet. Check back once your admin opens one.'}
+          </p>
+        ) : isAdmin ? (
           adminTab === 'dashboard' ? (
-            <AdminDashboard managers={managers} awards={awards} />
+            <AdminDashboard managers={managersWithData} awards={awardsWithLabel} currentCycleLabel={currentCycle.label} />
           ) : (
-            <AdminPeopleView
-              managers={managers}
-              onUpdateCredits={updateCredits}
-              onAddManager={addManager}
-              onAddReportee={addReportee}
-              onRemoveReportee={removeReportee}
-            />
+            <AdminPeopleView managers={managersWithData} />
           )
         ) : currentManager ? (
-          <ManagerView manager={currentManager} awards={awards} onGiveAward={giveAward} />
+          <ManagerView manager={currentManager} awards={awardsWithLabel} currentCycle={currentCycle} onGiveAward={handleGiveAward} />
         ) : (
-          <p className="text-sm text-[var(--muted-foreground)]">Manager not found.</p>
+          <p className="text-sm text-[var(--muted-foreground)]">Loading your data…</p>
         )}
       </main>
     </div>
