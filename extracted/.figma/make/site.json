@@ -1,0 +1,10 @@
+{
+  "description": "Manage and track employee rewards and budgets with role-based access, enabling admins and managers to allocate and monitor recognition efficiently.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
