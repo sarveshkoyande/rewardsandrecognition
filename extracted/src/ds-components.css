@@ -1,0 +1,150 @@
+/* Reusable component CSS for primitives. Imports tokens implicitly via preview-shell.css. */
+
+/* BUTTONS ---------------------------------------------------------------- */
+.btn {
+  font: var(--label-large); letter-spacing: 0.1px;
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: var(--spacing-4);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  user-select: none;
+  transition: background 120ms ease-out, color 120ms ease-out, box-shadow 120ms ease-out;
+}
+.btn-sm { height: 32px; padding: 0 var(--spacing-16); }
+.btn-md { height: 36px; padding: 0 18px; }
+.btn-lg { height: 40px; padding: 0 var(--spacing-20); }
+
+.btn-filled { background: var(--primary); color: var(--base-white); }
+.btn-filled:hover { background: var(--primary-background-hover); }
+.btn-filled:active { background: var(--primary-background-pressed); }
+.btn-filled.is-disabled { background: var(--neutral-600); pointer-events: none; }
+
+.btn-outlined { background: var(--base-white); color: var(--primary); border-color: var(--primary); }
+.btn-outlined:hover { background: var(--primary-light-background); color: var(--primary-background-hover); border-color: var(--primary-background-hover); box-shadow: inset 0 0 0 1px var(--primary-background-hover); }
+.btn-outlined:active { background: var(--primary-background-pressed); color: var(--base-white); border-color: var(--primary-background-pressed); }
+.btn-outlined.is-disabled { color: var(--neutral-600); border-color: var(--neutral-600); pointer-events: none; }
+
+.btn-text { background: transparent; color: var(--primary); padding-left: var(--spacing-12); padding-right: var(--spacing-12); }
+.btn-text:hover { background: var(--neutral-100); color: var(--primary-background-hover); }
+.btn-text:active { background: transparent; color: var(--primary-background-pressed); }
+.btn-text.is-disabled { color: var(--neutral-600); pointer-events: none; }
+
+.btn-destructive { background: var(--error-foreground); color: var(--base-white); }
+.btn-destructive:hover { background: #A01320; }
+.btn-destructive:active { background: #7F0F19; }
+
+.btn-icon { width: 36px; padding: 0; }
+.btn-icon.btn-sm { width: 32px; }
+.btn-icon.btn-lg { width: 40px; }
+
+.btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--base-white), 0 0 0 4px var(--primary); }
+
+/* TAGS ------------------------------------------------------------------- */
+.tag {
+  display: inline-flex; align-items: center; gap: var(--spacing-4);
+  height: 24px; padding: 0 var(--spacing-8);
+  border-radius: var(--radius-full);
+  font: var(--label-large); font-weight: 500; letter-spacing: 0.1px;
+  border: 1px solid transparent;
+}
+.tag-md { height: 32px; padding: 0 var(--spacing-12); font: 500 16px/24px var(--font-family); letter-spacing: 0.5px; }
+
+.tag-neutral { background: var(--neutral-100); color: var(--neutral-900); }
+.tag-primary { background: var(--primary-light-background); color: var(--primary); }
+.tag-success { background: var(--success-light-background); color: var(--success-foreground); }
+.tag-error   { background: var(--error-light-background); color: var(--error-foreground); }
+.tag-warning { background: var(--warning-light-background); color: var(--warning-foreground); }
+.tag-info    { background: var(--info-light-background); color: var(--info-foreground); }
+
+.tag-outlined.tag-neutral { background: transparent; border-color: var(--neutral-600); color: var(--neutral-900); }
+.tag-outlined.tag-primary { background: transparent; border-color: var(--primary); color: var(--primary); }
+.tag-outlined.tag-success { background: transparent; border-color: var(--success-foreground); color: var(--success-foreground); }
+.tag-outlined.tag-error   { background: transparent; border-color: var(--error-foreground); color: var(--error-foreground); }
+.tag-outlined.tag-warning { background: transparent; border-color: var(--warning-foreground); color: var(--warning-foreground); }
+
+.tag-solid.tag-primary { background: var(--primary); color: var(--base-white); }
+.tag-solid.tag-success { background: var(--success-foreground); color: var(--base-white); }
+.tag-solid.tag-error   { background: var(--error-foreground); color: var(--base-white); }
+.tag-solid.tag-warning { background: var(--warning-foreground); color: var(--base-white); }
+
+/* CHIPS (interactive) ---------------------------------------------------- */
+.chip {
+  display: inline-flex; align-items: center; gap: var(--spacing-6);
+  height: 32px; padding: 0 var(--spacing-12);
+  border-radius: var(--radius-full);
+  font: var(--label-large); letter-spacing: 0.1px;
+  background: var(--base-white);
+  border: 1px solid var(--neutral-300);
+  color: var(--neutral-900);
+  cursor: pointer;
+}
+.chip:hover { background: var(--neutral-100); }
+.chip.is-selected {
+  background: var(--primary-light-background);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.chip .x {
+  width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-full); color: var(--neutral-600);
+  margin-right: -4px;
+}
+.chip .x:hover { background: var(--neutral-200); color: var(--neutral-900); }
+
+/* BADGE ------------------------------------------------------------------ */
+.badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; padding: 0 6px;
+  border-radius: var(--radius-full);
+  background: var(--error-foreground); color: var(--base-white);
+  font: var(--label-small); letter-spacing: 0;
+}
+.badge-dot { width: 8px; height: 8px; min-width: 0; padding: 0; }
+
+/* TEXT FIELD ------------------------------------------------------------- */
+.field { display: flex; flex-direction: column; gap: var(--spacing-4); width: 100%; max-width: 360px; }
+.field > .label { font: var(--label-medium); letter-spacing: 0.5px; color: var(--neutral-900); }
+.field > .label .req { color: var(--error-foreground); margin-left: 2px; }
+.field-wrap {
+  display: flex; align-items: center; gap: var(--spacing-8);
+  background: var(--base-white);
+  border: 1px solid var(--neutral-600);
+  border-radius: var(--radius-sm);
+  padding: 10px var(--spacing-16);
+  height: 40px;
+}
+.field-wrap input {
+  flex: 1; border: 0; outline: 0; background: transparent;
+  font: 500 14px/20px var(--font-family); letter-spacing: 0.1px;
+  color: var(--neutral-900);
+}
+.field-wrap input::placeholder { color: var(--neutral-600); font-weight: 500; }
+.field-wrap.is-hover { background: var(--neutral-100); border-color: var(--neutral-900); }
+.field-wrap.is-focused { border-color: var(--primary); }
+.field-wrap.is-error { border-color: var(--error-foreground); }
+.field-wrap.is-disabled { border-color: var(--neutral-400); pointer-events: none; }
+.field-wrap.is-readonly { background: var(--neutral-100); border-color: transparent; }
+.field .helper { display: flex; align-items: center; gap: 6px; font: var(--label-small); letter-spacing: 0.5px; color: var(--neutral-600); }
+.field .helper.is-error { color: var(--error-foreground); }
+
+/* AI MARK with halo pulse ----------------------------------------------- */
+.ai-mark-pulse {
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px;
+  color: var(--primary);
+}
+.ai-mark-pulse svg { position: relative; z-index: 1; width: 24px; height: 24px; }
+.ai-mark-pulse::before {
+  content: ""; position: absolute; inset: 4px;
+  background: var(--primary); border-radius: 999px;
+  animation: ai-halo 2000ms ease-out infinite;
+}
+@keyframes ai-halo {
+  from { transform: scale(0.6); opacity: 0.4; }
+  to   { transform: scale(1.6); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-mark-pulse::before { display: none; }
+}

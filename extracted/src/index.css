@@ -70,36 +70,47 @@
   --surface-app-shell-nav: #FBFBFB;
   --surface-page-content: #F7F8FA;
 
-  /* ---------- Indegene DS: typography ---------- */
+  /* ---------- Indegene DS: typography (full role scale) ---------- */
   --font-family: "DM Sans";
-  --headline-large: 600 32px/40px var(--font-family);
-  --headline-small: 600 24px/32px var(--font-family);
-  --title-large: 500 22px/28px var(--font-family);
-  --title-medium: 500 16px/24px var(--font-family);
-  --body-medium: 400 14px/20px var(--font-family);
-  --body-small: 400 12px/16px var(--font-family);
-  --label-large: 600 14px/20px var(--font-family);
-  --label-medium: 600 12px/16px var(--font-family);
+  --display-small:   600 36px/44px var(--font-family); /* tracking 0 */
+  --headline-large:  600 32px/40px var(--font-family); /* tracking 0 */
+  --headline-small:  600 24px/32px var(--font-family); /* tracking 0 */
+  --title-large:  500 22px/28px var(--font-family);    /* tracking 0 */
+  --title-medium: 500 16px/24px var(--font-family);    /* tracking 0.15 */
+  --title-small:  500 14px/20px var(--font-family);    /* tracking 0.10 */
+  --body-large:  400 16px/24px var(--font-family);     /* tracking 0.50 */
+  --body-medium: 400 14px/20px var(--font-family);     /* tracking 0.25 */
+  --body-small:  400 12px/16px var(--font-family);     /* tracking 0.40 */
+  --label-large:  600 14px/20px var(--font-family);    /* tracking 0.10 */
+  --label-medium: 600 12px/16px var(--font-family);    /* tracking 0.50 */
+  --label-small:  500 11px/16px var(--font-family);    /* tracking 0.50 */
 
   /* ---------- Indegene DS: spacing ---------- */
+  --spacing-2: 2px;
   --spacing-4: 4px;
+  --spacing-6: 6px;
   --spacing-8: 8px;
+  --spacing-10: 10px;
   --spacing-12: 12px;
   --spacing-16: 16px;
+  --spacing-20: 20px;
   --spacing-24: 24px;
   --spacing-32: 32px;
   --spacing-48: 48px;
 
   /* ---------- Indegene DS: radius ---------- */
+  --radius-2xs: 2px;
   --radius-xs: 4px;
   --radius-sm: 8px;
   --radius-md: 16px;
   --radius-lg: 24px;
+  --radius-xl: 32px;
   --radius-full: 999px;
 
   /* ---------- Indegene DS: elevation ---------- */
   --elevation-02: 0 1px 2px rgba(0,0,0,0.14), 0 0 2px rgba(0,0,0,0.12);
   --elevation-04: 0 2px 4px rgba(0,0,0,0.14), 0 0 2px rgba(0,0,0,0.12);
+  --elevation-modal: 0 32px 64px rgba(0,0,0,0.24), 0 0 8px rgba(0,0,0,0.20);
 
   /* ---------- Bridge: this app's semantic names -> Indegene tokens ----------
      Keeps every existing var(--card)/var(--border)/etc. reference in the
@@ -135,3 +146,85 @@ body {
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
 }
+
+/* ==========================================================================
+   Indegene DS component primitives (verbatim from the source mirror's
+   components.css, imported after tokens so its var() references resolve).
+   ========================================================================== */
+@import './ds-components.css';
+
+/* ==========================================================================
+   App-level composites built on the primitives above -- content cards, type
+   role utilities, and focus rings, so every surface in this app maps onto a
+   documented token instead of an ad hoc Tailwind size/shadow/border.
+   ========================================================================== */
+
+/* Content card shell -- matches the system's documented .card (07-cards):
+   radius-sm, elevation-02 at rest, no border (elevation signals lift, not a
+   border, per the guideline's "never add a border to signal hover" rule). */
+.ds-card {
+  background: var(--base-white);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--elevation-02);
+}
+
+/* Type role utilities -- font shorthand plus the tracking the token
+   intentionally excludes (Section 3.2.2 of the guideline). */
+.ds-display-s  { font: var(--display-small); }
+.ds-headline-l { font: var(--headline-large); }
+.ds-headline-s { font: var(--headline-small); }
+.ds-title-l    { font: var(--title-large); }
+.ds-title-m    { font: var(--title-medium); letter-spacing: 0.15px; }
+.ds-body-s     { font: var(--body-small); letter-spacing: 0.40px; }
+.ds-label-m    { font: var(--label-medium); letter-spacing: 0.50px; }
+.ds-label-s    { font: var(--label-small); letter-spacing: 0.50px; }
+/* DM Sans is the only sanctioned family (Section 0, rule 3) -- there is no
+   monospace token, so tabular numeric columns get digit alignment through
+   font-variant-numeric instead of swapping typefaces. */
+.ds-tabular    { font-variant-numeric: tabular-nums; }
+
+/* Underline tabs (08-navigation) */
+.ds-tabs { display: flex; gap: var(--spacing-24); border-bottom: 1px solid var(--neutral-200); }
+.ds-tab {
+  border: 0; background: transparent; padding: var(--spacing-8) 0;
+  font: 500 16px/24px var(--font-family); letter-spacing: 0.5px;
+  color: var(--neutral-600); cursor: pointer; position: relative;
+}
+.ds-tab.is-active { color: var(--primary); }
+.ds-tab.is-active::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px;
+  background: var(--primary); border-radius: 2px 2px 0 0;
+}
+
+/* Documented double focus ring (Section 2 quick-reference), applied to every
+   native interactive element so keyboard focus is consistent everywhere. */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+a:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--base-white), 0 0 0 4px var(--primary);
+}
+
+/* Text field -- matches .field-wrap from components.css, applied directly to
+   native input/select/textarea so every form control in this app shares one
+   definition instead of each caller hand-rolling border/radius/padding. */
+.ds-input {
+  width: 100%;
+  background: var(--base-white);
+  border: 1px solid var(--neutral-600);
+  border-radius: var(--radius-sm);
+  padding: 10px var(--spacing-16);
+  font: 500 14px/20px var(--font-family);
+  letter-spacing: 0.1px;
+  color: var(--neutral-900);
+  transition: border-color 120ms ease-out, background 120ms ease-out;
+}
+.ds-input::placeholder { color: var(--neutral-600); font-weight: 500; }
+.ds-input:hover { background: var(--neutral-100); border-color: var(--neutral-900); }
+.ds-input:focus { border-color: var(--primary); background: var(--base-white); }
+.ds-input:disabled { border-color: var(--neutral-400); pointer-events: none; }
+textarea.ds-input { height: auto; padding-top: var(--spacing-12); padding-bottom: var(--spacing-12); }
+select.ds-input { height: 40px; }
+input.ds-input { height: 40px; }

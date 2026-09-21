@@ -27,10 +27,10 @@ export function RosterImport() {
   }
 
   return (
-    <div className="bg-[var(--card)] border border-[var(--border)] rounded-lg overflow-hidden">
+    <div className="ds-card overflow-hidden">
       <div className="px-5 py-4 border-b border-[var(--border)]">
-        <h2 className="font-serif text-lg font-semibold">Import Roster</h2>
-        <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+        <h2 className="ds-title-m">Import Roster</h2>
+        <p className="ds-body-s text-[var(--muted-foreground)] mt-0.5">
           One-time CSV upload: manager_name, manager_email, reportee_name, reportee_designation
         </p>
       </div>
@@ -39,16 +39,16 @@ export function RosterImport() {
           type="file"
           accept=".csv,text/csv"
           onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])}
-          className="text-sm"
+          className="ds-body-s"
         />
-        {parseError && <p className="text-sm text-[var(--error-foreground)]">{parseError}</p>}
+        {parseError && <p className="ds-body-s text-[var(--error-foreground)]">{parseError}</p>}
 
         {rows.length > 0 && !results && (
           <div className="space-y-3">
             <p className="text-sm text-[var(--muted-foreground)]">{rows.length} row(s) ready to import.</p>
-            <table className="w-full text-xs border border-[var(--border)] rounded">
+            <table className="w-full ds-body-s border border-[var(--border)] rounded-[var(--radius-xs)]">
               <thead>
-                <tr className="bg-[var(--secondary)] text-[var(--muted-foreground)] uppercase tracking-wider">
+                <tr className="bg-[var(--secondary)] text-[var(--muted-foreground)] ds-label-m uppercase">
                   <th className="text-left px-3 py-2">Manager</th>
                   <th className="text-left px-3 py-2">Email</th>
                   <th className="text-left px-3 py-2">Reportee</th>
@@ -66,11 +66,7 @@ export function RosterImport() {
                 ))}
               </tbody>
             </table>
-            <button
-              onClick={submit}
-              disabled={submitting}
-              className="px-4 py-2 bg-[var(--primary)] text-white text-sm font-medium rounded-md hover:opacity-90 transition-opacity disabled:opacity-40"
-            >
+            <button onClick={submit} disabled={submitting} className="btn btn-filled btn-md disabled:opacity-40 disabled:pointer-events-none">
               {submitting ? 'Importing…' : 'Import roster'}
             </button>
           </div>
@@ -85,7 +81,7 @@ export function RosterImport() {
             {results
               .filter((r) => r.status === 'skipped')
               .map((r) => (
-                <p key={r.row} className="text-xs text-[var(--warning-foreground)]">
+                <p key={r.row} className="ds-body-s text-[var(--warning-foreground)]">
                   Row {r.row + 1}: {r.reason}
                 </p>
               ))}
