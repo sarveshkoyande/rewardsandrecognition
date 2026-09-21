@@ -42,7 +42,7 @@ interface AwardWithLabel extends Award {
 
 function Badge({ label }: { label: string }) {
   return (
-    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-50 text-amber-800 border border-amber-100">
+    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-[var(--primary-light-background)] text-[var(--primary)]">
       {label}
     </span>
   )
@@ -133,7 +133,7 @@ function AdminDashboard({
                   <td className="px-5 py-4 text-[var(--muted-foreground)] font-mono text-sm text-left">{m.reportees.length}</td>
                   <td className="px-5 py-4 text-center font-mono font-semibold">{m.credits}</td>
                   <td className="px-5 py-4 text-center font-mono text-[var(--primary)] font-semibold">{used}</td>
-                  <td className="px-5 py-4 text-center font-mono text-emerald-700 font-semibold">{remaining}</td>
+                  <td className="px-5 py-4 text-center font-mono text-[var(--success-foreground)] font-semibold">{remaining}</td>
                   <td className="px-5 py-4">
                     <CreditPips total={m.credits} used={used} />
                   </td>
@@ -294,12 +294,12 @@ function AdminPeopleView({ managers }: { managers: ManagerWithData[] }) {
                   <td className="px-5 py-2.5 font-medium">{r.name}</td>
                   <td className="px-5 py-2.5 text-[var(--muted-foreground)]">{r.designation}</td>
                   <td className="px-5 py-2.5 text-right">
-                    <button className="text-xs text-red-400 hover:text-red-600 transition-colors" onClick={() => removeReportee(r.id)}>Remove</button>
+                    <button className="text-xs text-[var(--error-foreground)] hover:opacity-70 transition-opacity" onClick={() => removeReportee(r.id)}>Remove</button>
                   </td>
                 </tr>
               ))}
               {addReportee === m.id ? (
-                <tr className="border-t border-[var(--border)] bg-amber-50/50">
+                <tr className="border-t border-[var(--border)] bg-[var(--primary-light-background)]/60">
                   <td className="px-5 py-2.5">
                     <input autoFocus className="border border-[var(--border)] rounded px-2 py-1 text-sm w-full bg-white" placeholder="Full name" value={newReportee.name} onChange={(e) => setNewReportee({ ...newReportee, name: e.target.value })} />
                   </td>
@@ -440,17 +440,17 @@ function ManagerView({
         </div>
         <div className="p-5 space-y-4">
           {success && (
-            <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm px-4 py-3 rounded-md flex items-center gap-2">
+            <div className="bg-[var(--success-light-background)] border border-[var(--success-foreground)]/20 text-[var(--success-foreground)] text-sm px-4 py-3 rounded-md flex items-center gap-2">
               <span>🏆</span> Award given to <strong>{success}</strong> — {remaining} credit{remaining !== 1 ? 's' : ''} remaining
             </div>
           )}
           {submitError && (
-            <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-md">
+            <div className="bg-[var(--error-light-background)] border border-[var(--error-foreground)]/20 text-[var(--error-foreground)] text-sm px-4 py-3 rounded-md">
               {submitError}
             </div>
           )}
           {remaining === 0 && (
-            <div className="bg-amber-50 border border-amber-200 text-amber-700 text-sm px-4 py-3 rounded-md">
+            <div className="bg-[var(--warning-light-background)] border border-[var(--warning-foreground)]/20 text-[var(--warning-foreground)] text-sm px-4 py-3 rounded-md">
               You've used all your credits for this cycle.
             </div>
           )}

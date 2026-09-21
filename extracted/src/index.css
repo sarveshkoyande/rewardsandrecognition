@@ -1,7 +1,14 @@
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&display=swap');
 @import 'tailwindcss';
+
+/* ==========================================================================
+   Indegene DS 4.Ai — tokens, self-hosted DM Sans (design system source:
+   INDEGENE-DS-4AI-DESIGN-GUIDELINES.md). Only the four weights this product
+   UI sanctions (400/500/600/700) are shipped; no italics.
+   ========================================================================== */
+@font-face { font-family: "DM Sans"; font-weight: 400; font-style: normal; src: url("/fonts/DMSans-Regular.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "DM Sans"; font-weight: 500; font-style: normal; src: url("/fonts/DMSans-Medium.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "DM Sans"; font-weight: 600; font-style: normal; src: url("/fonts/DMSans-SemiBold.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "DM Sans"; font-weight: 700; font-style: normal; src: url("/fonts/DMSans-Bold.ttf") format("truetype"); font-display: swap; }
 
 @theme inline {
   --color-background: var(--background);
@@ -19,33 +26,105 @@
   --color-border: var(--border);
   --color-ring: var(--ring);
   --radius-DEFAULT: var(--radius);
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-serif: 'Fraunces', Georgia, serif;
-  --font-mono: 'DM Mono', monospace;
+  /* DM Sans only, everywhere -- the guideline forbids other families, so
+     font-serif/font-mono utility classes already in use across the app
+     resolve to the same single face rather than requiring a rename pass. */
+  --font-sans: var(--font-family);
+  --font-serif: var(--font-family);
+  --font-mono: var(--font-family);
 }
 
 :root {
-  --background: #faf7f2;
-  --foreground: #1a1714;
-  --card: #ffffff;
-  --card-foreground: #1a1714;
-  --primary: #c8862a;
-  --primary-foreground: #ffffff;
-  --secondary: #f0ebe2;
-  --secondary-foreground: #3d3529;
-  --muted: #f0ebe2;
-  --muted-foreground: #7a6e61;
-  --accent: #e8a23a;
-  --accent-foreground: #1a1714;
-  --border: #e2dbd0;
-  --ring: #c8862a;
-  --radius: 6px;
+  /* ---------- Indegene DS: brand ---------- */
+  --primary: #5D2CC9;
+  --primary-light-background: #F5F0FF;
+  --primary-background-hover: #421F8F;
+  --primary-background-pressed: #271254;
+
+  /* ---------- Indegene DS: semantic ---------- */
+  --success-foreground: #1D5F02;
+  --success-light-background: #EAF3E6;
+  --error-foreground: #BF1724;
+  --error-light-background: #FFE8E8;
+  --warning-foreground: #946119;
+  --warning-light-background: #FFF4E1;
+  --info-foreground: #0E5FB7;
+  --info-light-background: #E1EEFB;
+
+  /* ---------- Indegene DS: neutral ramp ---------- */
+  --neutral-50: #FAFAFA;
+  --neutral-100: #F2F2F2;
+  --neutral-200: #E5E5E5;
+  --neutral-300: #D1D5DB;
+  --neutral-400: #B5B3B3;
+  --neutral-500: #9A9A9C;
+  --neutral-600: #6D6E71;
+  --neutral-700: #4A4647;
+  --neutral-800: #332F30;
+  --neutral-900: #231F20;
+  --base-white: #FFFFFF;
+
+  /* ---------- Indegene DS: surfaces ---------- */
+  --surface-app-header: #F8F8FC;
+  --surface-card-tinted: #F4F1FB;
+  --surface-app-shell-nav: #FBFBFB;
+  --surface-page-content: #F7F8FA;
+
+  /* ---------- Indegene DS: typography ---------- */
+  --font-family: "DM Sans";
+  --headline-large: 600 32px/40px var(--font-family);
+  --headline-small: 600 24px/32px var(--font-family);
+  --title-large: 500 22px/28px var(--font-family);
+  --title-medium: 500 16px/24px var(--font-family);
+  --body-medium: 400 14px/20px var(--font-family);
+  --body-small: 400 12px/16px var(--font-family);
+  --label-large: 600 14px/20px var(--font-family);
+  --label-medium: 600 12px/16px var(--font-family);
+
+  /* ---------- Indegene DS: spacing ---------- */
+  --spacing-4: 4px;
+  --spacing-8: 8px;
+  --spacing-12: 12px;
+  --spacing-16: 16px;
+  --spacing-24: 24px;
+  --spacing-32: 32px;
+  --spacing-48: 48px;
+
+  /* ---------- Indegene DS: radius ---------- */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-full: 999px;
+
+  /* ---------- Indegene DS: elevation ---------- */
+  --elevation-02: 0 1px 2px rgba(0,0,0,0.14), 0 0 2px rgba(0,0,0,0.12);
+  --elevation-04: 0 2px 4px rgba(0,0,0,0.14), 0 0 2px rgba(0,0,0,0.12);
+
+  /* ---------- Bridge: this app's semantic names -> Indegene tokens ----------
+     Keeps every existing var(--card)/var(--border)/etc. reference in the
+     components working unchanged; only the values move to the design system. */
+  --background: var(--surface-page-content);
+  --foreground: var(--neutral-900);
+  --card: var(--base-white);
+  --card-foreground: var(--neutral-900);
+  --primary-foreground: var(--base-white);
+  --secondary: var(--neutral-100);
+  --secondary-foreground: var(--neutral-900);
+  --muted: var(--neutral-100);
+  --muted-foreground: var(--neutral-600);
+  --accent: var(--primary-light-background);
+  --accent-foreground: var(--primary);
+  --border: var(--neutral-200);
+  --ring: var(--primary);
+  --radius: var(--radius-sm);
 }
 
 body {
   background-color: var(--background);
   color: var(--foreground);
-  font-family: 'Inter', system-ui, sans-serif;
+  font: var(--body-medium);
+  letter-spacing: 0.25px;
   -webkit-font-smoothing: antialiased;
 }
 

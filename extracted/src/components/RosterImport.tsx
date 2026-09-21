@@ -41,7 +41,7 @@ export function RosterImport() {
           onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])}
           className="text-sm"
         />
-        {parseError && <p className="text-sm text-red-600">{parseError}</p>}
+        {parseError && <p className="text-sm text-[var(--error-foreground)]">{parseError}</p>}
 
         {rows.length > 0 && !results && (
           <div className="space-y-3">
@@ -85,7 +85,7 @@ export function RosterImport() {
             {results
               .filter((r) => r.status === 'skipped')
               .map((r) => (
-                <p key={r.row} className="text-xs text-amber-700">
+                <p key={r.row} className="text-xs text-[var(--warning-foreground)]">
                   Row {r.row + 1}: {r.reason}
                 </p>
               ))}
