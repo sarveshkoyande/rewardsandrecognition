@@ -675,16 +675,25 @@ export default function App() {
       )}
 
       <main className="max-w-5xl mx-auto px-6 py-8">
-        {!currentCycle ? (
-          <p className="text-sm text-[var(--muted-foreground)]">
-            {isAdmin ? 'No cycle is open yet. Open one from People & Structure to get started.' : 'No award cycle is open yet. Check back once your admin opens one.'}
-          </p>
-        ) : isAdmin ? (
+        {isAdmin ? (
           adminTab === 'dashboard' ? (
-            <AdminDashboard managers={managersWithData} awards={awardsWithLabel} currentCycleLabel={currentCycle.label} />
+            currentCycle ? (
+              <AdminDashboard managers={managersWithData} awards={awardsWithLabel} currentCycleLabel={currentCycle.label} />
+            ) : (
+              <div className="bg-[var(--card)] border border-[var(--border)] rounded-lg p-8 text-center space-y-3">
+                <p className="text-sm text-[var(--muted-foreground)]">
+                  No award cycle is open yet. Add your managers under People &amp; Structure first, then open the first cycle here.
+                </p>
+                <div className="flex justify-center">
+                  <OpenCycleButton />
+                </div>
+              </div>
+            )
           ) : (
             <AdminPeopleView managers={managersWithData} />
           )
+        ) : !currentCycle ? (
+          <p className="text-sm text-[var(--muted-foreground)]">No award cycle is open yet. Check back once your admin opens one.</p>
         ) : currentManager ? (
           <ManagerView manager={currentManager} awards={awardsWithLabel} currentCycle={currentCycle} onGiveAward={handleGiveAward} />
         ) : (
