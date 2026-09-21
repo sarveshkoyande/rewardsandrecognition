@@ -3,60 +3,78 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // No Cloud Functions on the free Spark plan, so there are no custom
+    // claims -- role is resolved by whether a doc keyed to the signed-in
+    // email exists in admins/ or managers/ (managers are keyed by email as
+    // their document id, so this exists() check needs no extra lookup doc).
+    function signedInEmail() {
+      return request.auth.token.email;
+    }
+
     function isAdmin() {
-      return request.auth != null && request.auth.token.role == 'admin';
+      return request.auth != null
+        && exists(/databases/$(database)/documents/admins/$(signedInEmail()));
     }
 
     function isManager() {
-      return request.auth != null && request.auth.token.role == 'manager';
+      return request.auth != null
+        && exists(/databases/$(database)/documents/managers/$(signedInEmail()));
     }
 
     function isOwnManagerId(managerId) {
-      return isManager() && request.auth.token.managerId == managerId;
+      return request.auth != null && signedInEmail() == managerId;
     }
 
     function currentCycleId() {
       return get(/databases/$(database)/documents/meta/currentCycle).data.cycleId;
     }
 
-    // managers, reportees, cycles, and allocations are written only by the
-    // Admin SDK (importRoster / openCycle / adminEditRoster Cloud Functions),
-    // which bypasses these rules -- so no client write path is granted here
-    // (KTD2, KTD5).
+    // managers/reportees/cycles/allocations are edited only by an admin,
+    // directly from the client (no server-side validation layer without
+    // Cloud Functions) -- CSV import, cycle-open, and roster edits all
+    // write here under this same admin-only gate.
     match /managers/{managerId} {
       allow read: if isAdmin() || isOwnManagerId(managerId);
-      allow write: if false;
+      allow write: if isAdmin();
     }
 
     match /reportees/{reporteeId} {
       allow read: if isAdmin() || isOwnManagerId(resource.data.managerId);
-      allow write: if false;
+      allow write: if isAdmin();
     }
 
     match /cycles/{cycleId} {
       allow read: if isAdmin() || isManager();
-      allow write: if false;
+      allow write: if isAdmin();
 
       match /allocations/{managerId} {
         allow read: if isAdmin() || isOwnManagerId(managerId);
-        allow write: if false;
+        // An allocation doc is first created while opening a brand new
+        // cycle (before meta/currentCycle points at it, so it can't be
+        // gated on "is this the current cycle" yet). Once it exists, further
+        // edits (resetAllocation/setAllocation) are only allowed while that
+        // cycle is still the current one, so a stale or mistaken admin
+        // action can never rewrite a closed cycle's historical snapshot
+        // (R7/AE3).
+        allow create: if isAdmin();
+        allow update: if isAdmin() && cycleId == currentCycleId();
+        allow delete: if false;
       }
     }
 
     match /meta/currentCycle {
       allow read: if isAdmin() || isManager();
-      allow write: if false;
+      allow write: if isAdmin();
     }
 
     match /admins/{adminId} {
-      // Only the Admin SDK ever reads this collection (rosterLookup runs
-      // with admin privileges inside beforeSignIn); no client access.
-      allow read, write: if false;
+      allow read: if isAdmin();
+      allow write: if false; // seed the first admin manually in the console
     }
 
-    // Awards are the one collection managers write directly (R10, KTD5):
-    // a manager may create an award for themselves in the current cycle,
-    // and read only their own; an admin reads all. No client update/delete --
+    // Awards are the one collection managers write directly (R10): a
+    // manager may create an award for themselves in the current cycle, and
+    // read only their own; an admin reads all. No client update/delete --
     // an award is an append-only record of what already happened.
     match /awards/{awardId} {
       allow read: if isAdmin() || isOwnManagerId(resource.data.managerId);

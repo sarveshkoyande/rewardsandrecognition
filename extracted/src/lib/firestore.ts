@@ -1,14 +1,19 @@
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
+  getDoc,
+  getDocs,
   onSnapshot,
   query,
+  setDoc,
   where,
+  writeBatch,
   type Unsubscribe,
 } from 'firebase/firestore'
-import { httpsCallable } from 'firebase/functions'
-import { db, functions } from './firebase'
+import { db } from './firebase'
+import { calcDefaultCredits } from './credits'
 
 export interface Manager {
   id: string
@@ -125,22 +130,137 @@ export function subscribeAllocations(
   })
 }
 
-/** The one direct client write this app makes (KTD5): a manager records an award they already gave. */
+/** The one direct client write every signed-in manager makes: recording an award they already gave. */
 export async function giveAward(award: Omit<Award, 'id'>): Promise<void> {
   await addDoc(collection(db, 'awards'), award)
 }
 
-export const importRosterCall = httpsCallable<
-  { rows: Array<{ manager_name: string; manager_email: string; reportee_name: string; reportee_designation: string }> },
-  { results: Array<{ row: number; status: string; reason?: string }> }
->(functions, 'importRoster')
+// ─── Admin roster edits (R5) -- direct client writes, gated by firestore.rules' isAdmin() ──
 
-export const openCycleCall = httpsCallable<{ label: string }, { cycleId: string; label: string }>(
-  functions,
-  'openCycle'
-)
+export async function addManager(email: string, name: string, designation: string): Promise<void> {
+  const id = email.trim().toLowerCase()
+  await setDoc(doc(db, 'managers', id), { name: name.trim(), email: id, designation: designation.trim() })
+}
 
-export const adminEditRosterCall = httpsCallable<Record<string, unknown>, Record<string, unknown>>(
-  functions,
-  'adminEditRoster'
-)
+export async function addReportee(managerId: string, name: string, designation: string): Promise<void> {
+  await addDoc(collection(db, 'reportees'), { managerId, name: name.trim(), designation: designation.trim() })
+}
+
+export async function removeReportee(reporteeId: string): Promise<void> {
+  await deleteDoc(doc(db, 'reportees', reporteeId))
+}
+
+export async function resetAllocation(cycleId: string, managerId: string): Promise<number> {
+  const reporteesSnap = await getDocs(query(collection(db, 'reportees'), where('managerId', '==', managerId)))
+  const allocated = calcDefaultCredits(reporteesSnap.size)
+  await setDoc(doc(db, 'cycles', cycleId, 'allocations', managerId), { managerId, allocated })
+  return allocated
+}
+
+export async function setAllocation(cycleId: string, managerId: string, allocated: number): Promise<void> {
+  await setDoc(doc(db, 'cycles', cycleId, 'allocations', managerId), { managerId, allocated })
+}
+
+// ─── CSV roster bulk-import (R4, AE1) ──────────────────────────────────────────
+
+export interface RosterRow {
+  manager_name: string
+  manager_email: string
+  reportee_name: string
+  reportee_designation: string
+}
+
+export type RosterRowResult =
+  | { row: number; status: 'created'; managerId: string }
+  | { row: number; status: 'skipped'; reason: string }
+
+/**
+ * Managers are keyed by email as their Firestore document id, so "upsert by
+ * email" (AE1) is just a setDoc to that id -- no query needed, and repeated
+ * rows for the same manager in one CSV pass reuse the same doc.
+ */
+export async function importRoster(rows: RosterRow[]): Promise<RosterRowResult[]> {
+  const results: RosterRowResult[] = []
+  const seenManagerIds = new Set<string>()
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]
+    const managerName = row.manager_name?.trim()
+    const managerEmail = row.manager_email?.trim().toLowerCase()
+    const reporteeName = row.reportee_name?.trim()
+    const reporteeDesignation = row.reportee_designation?.trim() ?? ''
+
+    if (!managerName || !managerEmail) {
+      results.push({ row: i, status: 'skipped', reason: 'Missing manager name or email' })
+      continue
+    }
+    if (!reporteeName) {
+      results.push({ row: i, status: 'skipped', reason: 'Missing reportee name' })
+      continue
+    }
+
+    if (!seenManagerIds.has(managerEmail)) {
+      await setDoc(
+        doc(db, 'managers', managerEmail),
+        { name: managerName, email: managerEmail, designation: '' },
+        { merge: true }
+      )
+      seenManagerIds.add(managerEmail)
+    }
+
+    await addDoc(collection(db, 'reportees'), {
+      managerId: managerEmail,
+      name: reporteeName,
+      designation: reporteeDesignation,
+    })
+
+    results.push({ row: i, status: 'created', managerId: managerEmail })
+  }
+
+  return results
+}
+
+// ─── Cycle open (R6, R7, R8, AE3) ──────────────────────────────────────────────
+
+export async function openCycle(label: string): Promise<{ cycleId: string; label: string }> {
+  const trimmed = label.trim()
+  if (!trimmed) throw new Error('A cycle label is required.')
+
+  const [managersSnap, reporteesSnap, metaSnap] = await Promise.all([
+    getDocs(collection(db, 'managers')),
+    getDocs(collection(db, 'reportees')),
+    getDoc(doc(db, 'meta', 'currentCycle')),
+  ])
+
+  const reporteeCounts = new Map<string, number>()
+  for (const reporteeDoc of reporteesSnap.docs) {
+    const managerId = reporteeDoc.data().managerId as string
+    reporteeCounts.set(managerId, (reporteeCounts.get(managerId) ?? 0) + 1)
+  }
+
+  const previousCycleId = metaSnap.exists() ? (metaSnap.data().cycleId as string | undefined) : undefined
+
+  const batch = writeBatch(db)
+  const newCycleRef = doc(collection(db, 'cycles'))
+  batch.set(newCycleRef, { label: trimmed, status: 'open', openedAt: new Date().toISOString() })
+
+  for (const managerDoc of managersSnap.docs) {
+    const allocated = calcDefaultCredits(reporteeCounts.get(managerDoc.id) ?? 0)
+    // Allocation docs are new here (rules-permitted create), never already
+    // existing -- a fresh cycle id can't collide with a prior cycle's
+    // allocation subcollection.
+    batch.set(doc(db, 'cycles', newCycleRef.id, 'allocations', managerDoc.id), {
+      managerId: managerDoc.id,
+      allocated,
+    })
+  }
+
+  if (previousCycleId) {
+    batch.update(doc(db, 'cycles', previousCycleId), { status: 'closed' })
+  }
+
+  batch.set(doc(db, 'meta', 'currentCycle'), { cycleId: newCycleRef.id, label: trimmed })
+
+  await batch.commit()
+  return { cycleId: newCycleRef.id, label: trimmed }
+}

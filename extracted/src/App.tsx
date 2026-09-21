@@ -5,8 +5,12 @@ import { BlockedScreen } from './components/BlockedScreen'
 import { RosterImport } from './components/RosterImport'
 import { OpenCycleButton } from './components/OpenCycleButton'
 import {
-  adminEditRosterCall,
+  addManager as createManager,
+  addReportee as createReportee,
   giveAward,
+  removeReportee,
+  resetAllocation,
+  setAllocation,
   subscribeAllocations,
   subscribeAwards,
   subscribeCurrentCycle,
@@ -219,7 +223,7 @@ function AdminPeopleView({ managers }: { managers: ManagerWithData[] }) {
               className="px-4 py-2 bg-[var(--primary)] text-white text-sm rounded hover:opacity-90 transition-opacity"
               onClick={async () => {
                 if (newManager.name.trim() && newManager.email.trim()) {
-                  await adminEditRosterCall({ action: 'addManager', ...newManager })
+                  await createManager(newManager.email, newManager.name, newManager.designation)
                   setNewManager({ name: '', designation: '', email: '' })
                   setAddManager(false)
                 }
@@ -254,7 +258,7 @@ function AdminPeopleView({ managers }: { managers: ManagerWithData[] }) {
                       onClick={async () => {
                         const v = parseInt(editingCredits.value)
                         if (!isNaN(v) && v >= 0 && m.currentCycleId) {
-                          await adminEditRosterCall({ action: 'setAllocation', cycleId: m.currentCycleId, managerId: m.id, allocated: v })
+                          await setAllocation(m.currentCycleId, m.id, v)
                         }
                         setEditingCredits(null)
                       }}
@@ -267,7 +271,7 @@ function AdminPeopleView({ managers }: { managers: ManagerWithData[] }) {
                     <button className="text-xs text-[var(--muted-foreground)] hover:text-[var(--primary)] transition-colors" onClick={() => setEditingCredits({ id: m.id, value: m.credits.toString() })}>✎</button>
                     <button
                       className="text-xs text-[var(--muted-foreground)] hover:text-[var(--primary)] transition-colors border border-[var(--border)] px-1.5 py-0.5 rounded"
-                      onClick={() => m.currentCycleId && adminEditRosterCall({ action: 'resetAllocation', cycleId: m.currentCycleId, managerId: m.id })}
+                      onClick={() => m.currentCycleId && resetAllocation(m.currentCycleId, m.id)}
                       title="Reset to 40% of headcount"
                     >↺ auto</button>
                   </div>
@@ -290,7 +294,7 @@ function AdminPeopleView({ managers }: { managers: ManagerWithData[] }) {
                   <td className="px-5 py-2.5 font-medium">{r.name}</td>
                   <td className="px-5 py-2.5 text-[var(--muted-foreground)]">{r.designation}</td>
                   <td className="px-5 py-2.5 text-right">
-                    <button className="text-xs text-red-400 hover:text-red-600 transition-colors" onClick={() => adminEditRosterCall({ action: 'removeReportee', reporteeId: r.id })}>Remove</button>
+                    <button className="text-xs text-red-400 hover:text-red-600 transition-colors" onClick={() => removeReportee(r.id)}>Remove</button>
                   </td>
                 </tr>
               ))}
@@ -308,7 +312,7 @@ function AdminPeopleView({ managers }: { managers: ManagerWithData[] }) {
                         className="text-xs px-2 py-1 bg-[var(--primary)] text-white rounded"
                         onClick={async () => {
                           if (newReportee.name.trim()) {
-                            await adminEditRosterCall({ action: 'addReportee', managerId: m.id, ...newReportee })
+                            await createReportee(m.id, newReportee.name, newReportee.designation)
                             setNewReportee({ name: '', designation: '' })
                             setAddReportee(null)
                           }

@@ -1,18 +1,12 @@
 import { useState } from 'react'
 import { parseRosterCsv, type RosterRow } from '../lib/csv'
-import { importRosterCall } from '../lib/firestore'
-
-interface RowResult {
-  row: number
-  status: string
-  reason?: string
-}
+import { importRoster, type RosterRowResult } from '../lib/firestore'
 
 export function RosterImport() {
   const [rows, setRows] = useState<RosterRow[]>([])
   const [parseError, setParseError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [results, setResults] = useState<RowResult[] | null>(null)
+  const [results, setResults] = useState<RosterRowResult[] | null>(null)
 
   async function onFile(file: File) {
     const text = await file.text()
@@ -25,8 +19,8 @@ export function RosterImport() {
   async function submit() {
     setSubmitting(true)
     try {
-      const res = await importRosterCall({ rows })
-      setResults(res.data.results as RowResult[])
+      const res = await importRoster(rows)
+      setResults(res)
     } finally {
       setSubmitting(false)
     }

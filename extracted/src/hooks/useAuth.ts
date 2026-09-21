@@ -5,7 +5,8 @@ import {
   signOut as firebaseSignOut,
   type User,
 } from 'firebase/auth'
-import { auth, googleProvider } from '../lib/firebase'
+import { doc, getDoc } from 'firebase/firestore'
+import { auth, db, googleProvider } from '../lib/firebase'
 
 export type Role = 'admin' | 'manager'
 
@@ -20,12 +21,14 @@ interface AuthState {
 const CONTACT_ADMIN_MESSAGE = 'Your account is not set up yet. Contact your admin.'
 
 /**
- * A beforeSignIn blocking-function rejection (U3) never reaches this app as
- * a signed-in user -- Firebase Auth surfaces it as a rejected sign-in
- * promise, not an authStateChanged event. We treat any sign-in-time error as
- * "blocked" and show the contact-admin message rather than a raw SDK error,
- * since the only server-side rejection reason in this app is R2's unmapped
- * account case.
+ * The free Spark plan has no Cloud Functions, so there is no blocking
+ * sign-in step and no custom claims. Role is resolved here, client-side,
+ * by checking whether a doc keyed to the signed-in email exists in
+ * admins/ or managers/ (R2, R3) -- and Firestore security rules
+ * independently deny all data access to an email that matches neither, so
+ * an unmapped account is locked out even if this client-side check were
+ * bypassed. An unmapped account is signed out immediately rather than left
+ * holding a live session with nothing to do.
  */
 export function useAuth() {
   const [state, setState] = useState<AuthState>({
@@ -38,14 +41,37 @@ export function useAuth() {
 
   useEffect(() => {
     return onAuthStateChanged(auth, async (user) => {
-      if (!user) {
+      if (!user || !user.email) {
         setState({ loading: false, user: null, role: null, managerId: null, blockedMessage: null })
         return
       }
-      const tokenResult = await user.getIdTokenResult(true)
-      const role = (tokenResult.claims.role as Role | undefined) ?? null
-      const managerId = (tokenResult.claims.managerId as string | undefined) ?? null
-      setState({ loading: false, user, role, managerId, blockedMessage: null })
+
+      const email = user.email.toLowerCase()
+
+      // admins/{email} is only readable by an admin (firestore.rules), so a
+      // non-admin's read is denied outright rather than resolving to "not
+      // found" -- a permission-denied here just means "not an admin".
+      let isAdminUser = false
+      try {
+        isAdminUser = (await getDoc(doc(db, 'admins', email))).exists()
+      } catch {
+        isAdminUser = false
+      }
+      if (isAdminUser) {
+        setState({ loading: false, user, role: 'admin', managerId: null, blockedMessage: null })
+        return
+      }
+
+      // managers/{email} is always readable by the signed-in user checking
+      // their own email (isOwnManagerId), regardless of whether it exists.
+      const managerSnap = await getDoc(doc(db, 'managers', email))
+      if (managerSnap.exists()) {
+        setState({ loading: false, user, role: 'manager', managerId: email, blockedMessage: null })
+        return
+      }
+
+      await firebaseSignOut(auth)
+      setState({ loading: false, user: null, role: null, managerId: null, blockedMessage: CONTACT_ADMIN_MESSAGE })
     })
   }, [])
 
@@ -54,8 +80,8 @@ export function useAuth() {
     try {
       await signInWithPopup(auth, googleProvider)
     } catch {
-      // A rejected beforeSignIn call is the only expected failure mode here.
-      setState((s) => ({ ...s, blockedMessage: CONTACT_ADMIN_MESSAGE }))
+      // A popup closed/cancelled by the user also lands here; onAuthStateChanged
+      // handles the unmapped-account case once the popup does succeed.
     }
   }
 

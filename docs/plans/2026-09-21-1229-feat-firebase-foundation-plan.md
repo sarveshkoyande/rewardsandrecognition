@@ -11,6 +11,26 @@ execution: code
 
 # Firebase Foundation for Rewards & Recognition Tracker - Plan
 
+> **Superseded architecture note (post-implementation):** the user opted to
+> stay on the free Firebase Spark plan rather than upgrade to Blaze. Spark
+> does not support deploying any Cloud Function, so KTD1 (`beforeSignIn`
+> blocking function), KTD3/KTD4 (callable `importRoster`/`openCycle`
+> functions), and every reference to custom claims below are **not what was
+> built**. The actual implementation resolves role client-side by checking
+> `admins/{email}` / `managers/{email}` document existence (managers are
+> keyed by email as their Firestore document id), enforces access purely
+> through `firestore.rules`, and runs CSV import / cycle-open / roster edits
+> as direct client writes gated by an `isAdmin()` rule. The weaker guarantee
+> this trades away: an unmapped Google account can obtain a Firebase Auth
+> session (it just gets zero data access and is immediately signed back out)
+> instead of never getting a session at all. R7/AE3 (a closed cycle's
+> allocation snapshot can't be rewritten) is preserved via a create-vs-update
+> split in the security rules instead of a server-side check. See
+> `extracted/src/hooks/useAuth.ts` and `firestore.rules` for the actual
+> mechanism; the Requirements, Flows, and Acceptance Examples below still
+> hold, only the Planning Contract's Cloud-Functions-based KTDs and
+> Implementation Units are stale.
+
 ## Goal Capsule
 
 - **Objective:** A manager can sign in with their own identity and see exactly their own credit balance and award history; an admin can sign in and see the whole org's credit allocation and award activity — both backed by real, persistent, per-user data instead of a role dropdown and in-memory state.

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { openCycleCall } from '../lib/firestore'
+import { openCycle } from '../lib/firestore'
 
 export function OpenCycleButton() {
   const [label, setLabel] = useState('')
@@ -10,7 +10,7 @@ export function OpenCycleButton() {
     if (!label.trim()) return
     setBusy(true)
     try {
-      await openCycleCall({ label: label.trim() })
+      await openCycle(label.trim())
       setLabel('')
       setConfirming(false)
     } finally {
