@@ -48,30 +48,44 @@ export function useAuth() {
 
       const email = user.email.toLowerCase()
 
-      // admins/{email} is only readable by an admin (firestore.rules), so a
-      // non-admin's read is denied outright rather than resolving to "not
-      // found" -- a permission-denied here just means "not an admin".
-      let isAdminUser = false
       try {
-        isAdminUser = (await getDoc(doc(db, 'admins', email))).exists()
+        // admins/{email} is only readable by an admin (firestore.rules), so a
+        // non-admin's read is denied outright rather than resolving to "not
+        // found" -- a permission-denied here just means "not an admin".
+        let isAdminUser = false
+        try {
+          isAdminUser = (await getDoc(doc(db, 'admins', email))).exists()
+        } catch {
+          isAdminUser = false
+        }
+        if (isAdminUser) {
+          setState({ loading: false, user, role: 'admin', managerId: null, blockedMessage: null })
+          return
+        }
+
+        // managers/{email} is always readable by the signed-in user checking
+        // their own email (isOwnManagerId), regardless of whether it exists.
+        const managerSnap = await getDoc(doc(db, 'managers', email))
+        if (managerSnap.exists()) {
+          setState({ loading: false, user, role: 'manager', managerId: email, blockedMessage: null })
+          return
+        }
+
+        await firebaseSignOut(auth)
+        setState({ loading: false, user: null, role: null, managerId: null, blockedMessage: CONTACT_ADMIN_MESSAGE })
       } catch {
-        isAdminUser = false
+        // Any unexpected Firestore failure (rules not deployed yet, network
+        // blip, project misconfigured) must still resolve loading -- getting
+        // stuck on "Loading..." forever is worse than a signed-out retry state.
+        await firebaseSignOut(auth).catch(() => {})
+        setState({
+          loading: false,
+          user: null,
+          role: null,
+          managerId: null,
+          blockedMessage: "Couldn't verify your account. Try signing in again in a moment.",
+        })
       }
-      if (isAdminUser) {
-        setState({ loading: false, user, role: 'admin', managerId: null, blockedMessage: null })
-        return
-      }
-
-      // managers/{email} is always readable by the signed-in user checking
-      // their own email (isOwnManagerId), regardless of whether it exists.
-      const managerSnap = await getDoc(doc(db, 'managers', email))
-      if (managerSnap.exists()) {
-        setState({ loading: false, user, role: 'manager', managerId: email, blockedMessage: null })
-        return
-      }
-
-      await firebaseSignOut(auth)
-      setState({ loading: false, user: null, role: null, managerId: null, blockedMessage: CONTACT_ADMIN_MESSAGE })
     })
   }, [])
 
