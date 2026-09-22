@@ -110,6 +110,47 @@ function AdminDashboard({
       </div>
 
       <div className="ds-card overflow-hidden">
+        <div className="px-5 py-4 border-b border-[var(--border)]">
+          <h2 className="ds-title-m">Manager Credits — {currentCycleLabel}</h2>
+          <p className="ds-body-s text-[var(--muted-foreground)] mt-0.5">Spark is capped by what's reported; Beacon nominations don't consume credit</p>
+        </div>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-[var(--secondary)] text-[var(--muted-foreground)] ds-label-m uppercase">
+              <th className="text-left px-5 py-3">Manager</th>
+              <th className="text-center px-5 py-3">Team</th>
+              <th className="text-center px-5 py-3">Spark Reported</th>
+              <th className="text-center px-5 py-3">Spark Given</th>
+              <th className="text-center px-5 py-3">Spark Pending</th>
+              <th className="text-center px-5 py-3">Beacon Reported</th>
+              <th className="text-center px-5 py-3">Beacon Given</th>
+            </tr>
+          </thead>
+          <tbody>
+            {managers.map((m, i) => {
+              const mSparkGiven = currentAwards.filter((a) => a.managerId === m.id && a.type === 'spark').length
+              const mBeaconGiven = currentAwards.filter((a) => a.managerId === m.id && a.type === 'beacon').length
+              const sparkPending = m.sparkTotal - mSparkGiven
+              return (
+                <tr key={m.id} className={`border-t border-[var(--border)] ${i % 2 === 1 ? 'bg-[var(--secondary)]/30' : ''}`}>
+                  <td className="px-5 py-3">
+                    <p className="font-medium">{m.name}</p>
+                    {!m.hasReported && <span className="tag tag-neutral" style={{ marginTop: 2 }}>Not reported yet</span>}
+                  </td>
+                  <td className="px-5 py-3 text-center ds-tabular text-[var(--muted-foreground)]">{m.reportees.length}</td>
+                  <td className="px-5 py-3 text-center ds-tabular">{m.sparkTotal}</td>
+                  <td className="px-5 py-3 text-center ds-tabular text-[var(--primary)]">{mSparkGiven}</td>
+                  <td className="px-5 py-3 text-center ds-tabular text-[var(--success-foreground)] font-semibold">{sparkPending}</td>
+                  <td className="px-5 py-3 text-center ds-tabular">{m.beaconTotal}</td>
+                  <td className="px-5 py-3 text-center ds-tabular text-[var(--primary)]">{mBeaconGiven}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="ds-card overflow-hidden">
         <div className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
           <div>
             <h2 className="ds-title-m">Activity — {currentCycleLabel}</h2>
@@ -418,19 +459,23 @@ function ManagerView({
   const sparkUsed = myCurrentAwards.filter((a) => a.type === 'spark').length
   const beaconUsed = myCurrentAwards.filter((a) => a.type === 'beacon').length
   const sparkRemaining = manager.sparkTotal - sparkUsed
-  const beaconRemaining = manager.beaconTotal - beaconUsed
 
   const [form, setForm] = useState({ type: 'spark' as CreditType, recipientId: '' })
   const [success, setSuccess] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
-  const remaining = form.type === 'spark' ? sparkRemaining : beaconRemaining
+  // Beacon nominations don't consume a credit (stakeholder feedback,
+  // 2026-09-22) -- Spark still does. Beacon's reported total is informational
+  // only, never a gate.
+  const isCapped = form.type === 'spark'
+  const remaining = isCapped ? sparkRemaining : null
+  const blocked = isCapped && sparkRemaining <= 0
   const givenThisType = new Set(myCurrentAwards.filter((a) => a.type === form.type).map((a) => a.recipientId))
 
   async function submit() {
     const rep = manager.reportees.find((r) => r.id === form.recipientId)
-    if (!rep || remaining <= 0) return
+    if (!rep || blocked) return
     setSubmitting(true)
     setSubmitError(null)
     try {
@@ -479,10 +524,10 @@ function ManagerView({
             <p className="ds-label-m uppercase text-[var(--muted-foreground)]">Beacon — {currentCycle.label}</p>
           </div>
           <div className="flex items-baseline gap-2">
-            <p className="ds-display-s text-[var(--foreground)]">{beaconRemaining}</p>
-            <p className="text-[var(--muted-foreground)] text-sm">/ {manager.beaconTotal} remaining</p>
+            <p className="ds-display-s text-[var(--foreground)]">{beaconUsed}</p>
+            <p className="text-[var(--muted-foreground)] text-sm">nominated · {manager.beaconTotal} reported</p>
           </div>
-          <CreditPips total={manager.beaconTotal} used={beaconUsed} />
+          <p className="ds-body-s text-[var(--muted-foreground)] mt-1">Nominations don't use up a credit</p>
         </div>
       </div>
       <button className="btn btn-text btn-sm" onClick={() => setEditingCredits(true)}>Edit my credit totals</button>
@@ -490,12 +535,13 @@ function ManagerView({
       <div className="ds-card overflow-hidden">
         <div className="px-5 py-4 border-b border-[var(--border)]">
           <h2 className="ds-title-m">Give Spark or Nominate for Beacon</h2>
-          <p className="ds-body-s text-[var(--muted-foreground)] mt-0.5">Uses 1 credit of the selected type · Each team member can receive one of each per cycle</p>
+          <p className="ds-body-s text-[var(--muted-foreground)] mt-0.5">A Spark award uses 1 credit · a Beacon nomination doesn't · each team member can receive one of each per cycle</p>
         </div>
         <div className="p-5 space-y-4">
           {success && (
             <div className="bg-[var(--success-light-background)] border border-[var(--success-foreground)]/20 text-[var(--success-foreground)] text-sm px-4 py-3 rounded-[var(--radius-sm)] flex items-center gap-2">
-              <span>🏆</span> {CREDIT_TYPE_VERB[form.type]} <strong>{success}</strong> — {remaining} {CREDIT_TYPE_LABEL[form.type]} credit{remaining !== 1 ? 's' : ''} remaining
+              <span>🏆</span> {CREDIT_TYPE_VERB[form.type]} <strong>{success}</strong>
+              {isCapped ? ` — ${remaining} Spark credit${remaining !== 1 ? 's' : ''} remaining` : ''}
             </div>
           )}
           {submitError && (
@@ -503,9 +549,9 @@ function ManagerView({
               {submitError}
             </div>
           )}
-          {remaining === 0 && (
+          {blocked && (
             <div className="bg-[var(--warning-light-background)] border border-[var(--warning-foreground)]/20 text-[var(--warning-foreground)] text-sm px-4 py-3 rounded-[var(--radius-sm)]">
-              You've used all your {CREDIT_TYPE_LABEL[form.type]} credits for this cycle.
+              You've used all your Spark credits for this cycle.
             </div>
           )}
 
@@ -530,7 +576,7 @@ function ManagerView({
               className="ds-input disabled:opacity-50"
               value={form.recipientId}
               onChange={(e) => setForm({ ...form, recipientId: e.target.value })}
-              disabled={remaining === 0}
+              disabled={blocked}
             >
               <option value="">— Choose a team member —</option>
               {manager.reportees.map((r) => (
@@ -543,10 +589,10 @@ function ManagerView({
 
           <button
             className="btn btn-filled btn-lg disabled:opacity-40 disabled:pointer-events-none"
-            disabled={submitting || !form.recipientId || remaining === 0 || givenThisType.has(form.recipientId)}
+            disabled={submitting || !form.recipientId || blocked || givenThisType.has(form.recipientId)}
             onClick={submit}
           >
-            {submitting ? 'Saving…' : form.type === 'spark' ? 'Give Spark Award — uses 1 credit →' : 'Nominate for Beacon — uses 1 credit →'}
+            {submitting ? 'Saving…' : form.type === 'spark' ? 'Give Spark Award — uses 1 credit →' : 'Nominate for Beacon →'}
           </button>
         </div>
       </div>
