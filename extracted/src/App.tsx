@@ -3,6 +3,7 @@ import { useAuth } from './hooks/useAuth'
 import { SignInScreen } from './components/SignInScreen'
 import { BlockedScreen } from './components/BlockedScreen'
 import { VerifyEmailScreen } from './components/VerifyEmailScreen'
+import { RoleChooserScreen } from './components/RoleChooserScreen'
 import { RosterImport } from './components/RosterImport'
 import { OpenCycleButton } from './components/OpenCycleButton'
 import { downloadCsv, toCsv } from './lib/csv'
@@ -700,12 +701,15 @@ export default function App() {
     managerId,
     blockedMessage,
     needsVerification,
+    availableRoles,
     signInWithGoogle,
     signInWithEmail,
     signUpWithEmail,
     resetPassword,
     resendVerificationEmail,
     recheckVerification,
+    chooseRole,
+    switchRole,
     signOut,
   } = useAuth()
   const [adminTab, setAdminTab] = useState<'dashboard' | 'people'>('dashboard')
@@ -761,7 +765,7 @@ export default function App() {
       />
     )
   }
-  if (!user || !role) {
+  if (!user) {
     return (
       <SignInScreen
         onSignInWithGoogle={signInWithGoogle}
@@ -770,6 +774,15 @@ export default function App() {
         onResetPassword={resetPassword}
       />
     )
+  }
+  if (!role && availableRoles.length > 1 && user.email) {
+    return <RoleChooserScreen email={user.email} onChoose={chooseRole} onSignOut={signOut} />
+  }
+  if (!role) {
+    // Shouldn't happen (availableRoles.length is 0 goes through blockedMessage,
+    // 1 resolves role directly) but keeps this a safe fallback rather than a
+    // blank screen if that invariant is ever broken.
+    return <div className="min-h-screen flex items-center justify-center text-sm text-[var(--muted-foreground)]">Loading…</div>
   }
 
   const cycleLabelById = new Map(cycles.map((c) => [c.id, c.label]))
@@ -841,6 +854,9 @@ export default function App() {
           </div>
           <div className="flex items-center gap-3">
             <span className="ds-body-s text-[var(--muted-foreground)]">{user.displayName ?? user.email} ({isAdmin ? 'Admin' : 'Manager'})</span>
+            {availableRoles.length > 1 && (
+              <button onClick={switchRole} className="btn btn-text btn-sm">Switch role</button>
+            )}
             <button onClick={signOut} className="btn btn-text btn-sm">Sign out</button>
           </div>
         </div>

@@ -21,9 +21,21 @@ interface AuthState {
   managerId: string | null
   blockedMessage: string | null
   needsVerification: boolean
+  /** Every role this account resolved to (admin/manager doc both matched by email). Length 2 means the person must pick before `role` is set. */
+  availableRoles: Role[]
 }
 
 const CONTACT_ADMIN_MESSAGE = 'Your account is not set up yet. Contact your admin.'
+
+const EMPTY_STATE: AuthState = {
+  loading: false,
+  user: null,
+  role: null,
+  managerId: null,
+  blockedMessage: null,
+  needsVerification: false,
+  availableRoles: [],
+}
 
 function isPasswordAccount(user: User): boolean {
   return user.providerData.some((p) => p.providerId === 'password')
@@ -39,6 +51,11 @@ function isPasswordAccount(user: User): boolean {
  * bypassed. An unmapped account is signed out immediately rather than left
  * holding a live session with nothing to do.
  *
+ * An email can match BOTH admins/ and managers/ (the same person is on
+ * both lists) -- in that case `role` stays null and `availableRoles` holds
+ * both until chooseRole() picks one. This does not re-authenticate; it is
+ * a pure client-side choice the person can revisit with switchRole().
+ *
  * Email/password accounts additionally gate on emailVerified: Google's
  * sign-in already guarantees the signed-in email belongs to that person,
  * but self-service email/password sign-up doesn't -- without this gate,
@@ -46,23 +63,16 @@ function isPasswordAccount(user: User): boolean {
  * colleague does, and inherit their manager access by email match alone.
  */
 export function useAuth() {
-  const [state, setState] = useState<AuthState>({
-    loading: true,
-    user: null,
-    role: null,
-    managerId: null,
-    blockedMessage: null,
-    needsVerification: false,
-  })
+  const [state, setState] = useState<AuthState>({ ...EMPTY_STATE, loading: true })
 
   async function resolveUser(user: User) {
     if (!user.email) {
-      setState({ loading: false, user: null, role: null, managerId: null, blockedMessage: null, needsVerification: false })
+      setState({ ...EMPTY_STATE, loading: false })
       return
     }
 
     if (isPasswordAccount(user) && !user.emailVerified) {
-      setState({ loading: false, user, role: null, managerId: null, blockedMessage: null, needsVerification: true })
+      setState({ ...EMPTY_STATE, loading: false, user, needsVerification: true })
       return
     }
 
@@ -78,33 +88,33 @@ export function useAuth() {
       } catch {
         isAdminUser = false
       }
-      if (isAdminUser) {
-        setState({ loading: false, user, role: 'admin', managerId: null, blockedMessage: null, needsVerification: false })
-        return
-      }
 
       // managers/{email} is always readable by the signed-in user checking
       // their own email (isOwnManagerId), regardless of whether it exists.
-      const managerSnap = await getDoc(doc(db, 'managers', email))
-      if (managerSnap.exists()) {
-        setState({ loading: false, user, role: 'manager', managerId: email, blockedMessage: null, needsVerification: false })
+      const isManagerUser = (await getDoc(doc(db, 'managers', email))).exists()
+
+      const availableRoles: Role[] = [...(isAdminUser ? (['admin'] as const) : []), ...(isManagerUser ? (['manager'] as const) : [])]
+
+      if (availableRoles.length === 0) {
+        await firebaseSignOut(auth)
+        setState({ ...EMPTY_STATE, loading: false, blockedMessage: CONTACT_ADMIN_MESSAGE })
         return
       }
 
-      await firebaseSignOut(auth)
-      setState({ loading: false, user: null, role: null, managerId: null, blockedMessage: CONTACT_ADMIN_MESSAGE, needsVerification: false })
+      const managerId = isManagerUser ? email : null
+      // Only one role matched -- resolve directly, no picker needed.
+      const role = availableRoles.length === 1 ? availableRoles[0] : null
+
+      setState({ loading: false, user, role, managerId, blockedMessage: null, needsVerification: false, availableRoles })
     } catch {
       // Any unexpected Firestore failure (rules not deployed yet, network
       // blip, project misconfigured) must still resolve loading -- getting
       // stuck on "Loading..." forever is worse than a signed-out retry state.
       await firebaseSignOut(auth).catch(() => {})
       setState({
+        ...EMPTY_STATE,
         loading: false,
-        user: null,
-        role: null,
-        managerId: null,
         blockedMessage: "Couldn't verify your account. Try signing in again in a moment.",
-        needsVerification: false,
       })
     }
   }
@@ -112,7 +122,7 @@ export function useAuth() {
   useEffect(() => {
     return onAuthStateChanged(auth, async (user) => {
       if (!user) {
-        setState({ loading: false, user: null, role: null, managerId: null, blockedMessage: null, needsVerification: false })
+        setState({ ...EMPTY_STATE, loading: false })
         return
       }
       await resolveUser(user)
@@ -207,6 +217,16 @@ export function useAuth() {
     await resolveUser(auth.currentUser)
   }
 
+  /** Picks which role to use for this session -- pure client state, no re-authentication. */
+  function chooseRole(role: Role) {
+    setState((s) => (s.availableRoles.includes(role) ? { ...s, role } : s))
+  }
+
+  /** Lets a dual-access person go back to the picker without signing out. */
+  function switchRole() {
+    setState((s) => (s.availableRoles.length > 1 ? { ...s, role: null } : s))
+  }
+
   async function signOut() {
     await firebaseSignOut(auth)
   }
@@ -219,6 +239,8 @@ export function useAuth() {
     resetPassword,
     resendVerificationEmail,
     recheckVerification,
+    chooseRole,
+    switchRole,
     signOut,
   }
 }
