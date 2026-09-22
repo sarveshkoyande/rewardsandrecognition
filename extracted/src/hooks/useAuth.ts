@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
 import {
+  createUserWithEmailAndPassword,
   onAuthStateChanged,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
   signInWithPopup,
   signOut as firebaseSignOut,
   type User,
@@ -16,9 +20,14 @@ interface AuthState {
   role: Role | null
   managerId: string | null
   blockedMessage: string | null
+  needsVerification: boolean
 }
 
 const CONTACT_ADMIN_MESSAGE = 'Your account is not set up yet. Contact your admin.'
+
+function isPasswordAccount(user: User): boolean {
+  return user.providerData.some((p) => p.providerId === 'password')
+}
 
 /**
  * The free Spark plan has no Cloud Functions, so there is no blocking
@@ -29,6 +38,12 @@ const CONTACT_ADMIN_MESSAGE = 'Your account is not set up yet. Contact your admi
  * an unmapped account is locked out even if this client-side check were
  * bypassed. An unmapped account is signed out immediately rather than left
  * holding a live session with nothing to do.
+ *
+ * Email/password accounts additionally gate on emailVerified: Google's
+ * sign-in already guarantees the signed-in email belongs to that person,
+ * but self-service email/password sign-up doesn't -- without this gate,
+ * anyone could sign up using a colleague's roster email before that
+ * colleague does, and inherit their manager access by email match alone.
  */
 export function useAuth() {
   const [state, setState] = useState<AuthState>({
@@ -37,57 +52,96 @@ export function useAuth() {
     role: null,
     managerId: null,
     blockedMessage: null,
+    needsVerification: false,
   })
 
-  useEffect(() => {
-    return onAuthStateChanged(auth, async (user) => {
-      if (!user || !user.email) {
-        setState({ loading: false, user: null, role: null, managerId: null, blockedMessage: null })
+  async function resolveUser(user: User) {
+    if (!user.email) {
+      setState({ loading: false, user: null, role: null, managerId: null, blockedMessage: null, needsVerification: false })
+      return
+    }
+
+    if (isPasswordAccount(user) && !user.emailVerified) {
+      setState({ loading: false, user, role: null, managerId: null, blockedMessage: null, needsVerification: true })
+      return
+    }
+
+    const email = user.email.toLowerCase()
+
+    try {
+      // admins/{email} is only readable by an admin (firestore.rules), so a
+      // non-admin's read is denied outright rather than resolving to "not
+      // found" -- a permission-denied here just means "not an admin".
+      let isAdminUser = false
+      try {
+        isAdminUser = (await getDoc(doc(db, 'admins', email))).exists()
+      } catch {
+        isAdminUser = false
+      }
+      if (isAdminUser) {
+        setState({ loading: false, user, role: 'admin', managerId: null, blockedMessage: null, needsVerification: false })
         return
       }
 
-      const email = user.email.toLowerCase()
-
-      try {
-        // admins/{email} is only readable by an admin (firestore.rules), so a
-        // non-admin's read is denied outright rather than resolving to "not
-        // found" -- a permission-denied here just means "not an admin".
-        let isAdminUser = false
-        try {
-          isAdminUser = (await getDoc(doc(db, 'admins', email))).exists()
-        } catch {
-          isAdminUser = false
-        }
-        if (isAdminUser) {
-          setState({ loading: false, user, role: 'admin', managerId: null, blockedMessage: null })
-          return
-        }
-
-        // managers/{email} is always readable by the signed-in user checking
-        // their own email (isOwnManagerId), regardless of whether it exists.
-        const managerSnap = await getDoc(doc(db, 'managers', email))
-        if (managerSnap.exists()) {
-          setState({ loading: false, user, role: 'manager', managerId: email, blockedMessage: null })
-          return
-        }
-
-        await firebaseSignOut(auth)
-        setState({ loading: false, user: null, role: null, managerId: null, blockedMessage: CONTACT_ADMIN_MESSAGE })
-      } catch {
-        // Any unexpected Firestore failure (rules not deployed yet, network
-        // blip, project misconfigured) must still resolve loading -- getting
-        // stuck on "Loading..." forever is worse than a signed-out retry state.
-        await firebaseSignOut(auth).catch(() => {})
-        setState({
-          loading: false,
-          user: null,
-          role: null,
-          managerId: null,
-          blockedMessage: "Couldn't verify your account. Try signing in again in a moment.",
-        })
+      // managers/{email} is always readable by the signed-in user checking
+      // their own email (isOwnManagerId), regardless of whether it exists.
+      const managerSnap = await getDoc(doc(db, 'managers', email))
+      if (managerSnap.exists()) {
+        setState({ loading: false, user, role: 'manager', managerId: email, blockedMessage: null, needsVerification: false })
+        return
       }
+
+      await firebaseSignOut(auth)
+      setState({ loading: false, user: null, role: null, managerId: null, blockedMessage: CONTACT_ADMIN_MESSAGE, needsVerification: false })
+    } catch {
+      // Any unexpected Firestore failure (rules not deployed yet, network
+      // blip, project misconfigured) must still resolve loading -- getting
+      // stuck on "Loading..." forever is worse than a signed-out retry state.
+      await firebaseSignOut(auth).catch(() => {})
+      setState({
+        loading: false,
+        user: null,
+        role: null,
+        managerId: null,
+        blockedMessage: "Couldn't verify your account. Try signing in again in a moment.",
+        needsVerification: false,
+      })
+    }
+  }
+
+  useEffect(() => {
+    return onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setState({ loading: false, user: null, role: null, managerId: null, blockedMessage: null, needsVerification: false })
+        return
+      }
+      await resolveUser(user)
     })
   }, [])
+
+  function authErrorMessage(err: unknown): string {
+    const code = (err as { code?: string })?.code ?? ''
+    switch (code) {
+      case 'auth/unauthorized-domain':
+        return "This site isn't authorized for sign-in yet. Ask your admin to add this domain in Firebase Authentication settings."
+      case 'auth/popup-blocked':
+        return 'Your browser blocked the sign-in popup. Allow popups for this site and try again.'
+      case 'auth/email-already-in-use':
+        return 'An account already exists for that email. Try signing in instead, or use "Forgot password?" if you don\'t remember it.'
+      case 'auth/invalid-email':
+        return 'That doesn\'t look like a valid email address.'
+      case 'auth/weak-password':
+        return 'Password is too weak -- use at least 6 characters.'
+      case 'auth/invalid-credential':
+      case 'auth/wrong-password':
+      case 'auth/user-not-found':
+        return 'Incorrect email or password.'
+      case 'auth/too-many-requests':
+        return 'Too many attempts. Wait a moment and try again.'
+      default:
+        return `Something went wrong (${code || 'unknown error'}). Try again.`
+    }
+  }
 
   async function signInWithGoogle() {
     setState((s) => ({ ...s, blockedMessage: null }))
@@ -102,19 +156,69 @@ export function useAuth() {
       if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
         return
       }
-      const message =
-        code === 'auth/unauthorized-domain'
-          ? "This site isn't authorized for sign-in yet. Ask your admin to add this domain in Firebase Authentication settings."
-          : code === 'auth/popup-blocked'
-            ? 'Your browser blocked the sign-in popup. Allow popups for this site and try again.'
-            : `Sign-in failed (${code || 'unknown error'}). Try again.`
-      setState((s) => ({ ...s, blockedMessage: message }))
+      setState((s) => ({ ...s, blockedMessage: authErrorMessage(err) }))
     }
+  }
+
+  /** Self-service sign-up: creates the Firebase Auth account and sends the verification email. The admin still owns whether that email is actually on the roster. */
+  async function signUpWithEmail(email: string, password: string): Promise<{ error: string | null }> {
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, email.trim(), password)
+      await sendEmailVerification(cred.user)
+      return { error: null }
+    } catch (err) {
+      return { error: authErrorMessage(err) }
+    }
+  }
+
+  async function signInWithEmail(email: string, password: string): Promise<{ error: string | null }> {
+    try {
+      await signInWithEmailAndPassword(auth, email.trim(), password)
+      return { error: null }
+    } catch (err) {
+      return { error: authErrorMessage(err) }
+    }
+  }
+
+  async function resetPassword(email: string): Promise<{ error: string | null }> {
+    try {
+      await sendPasswordResetEmail(auth, email.trim())
+      return { error: null }
+    } catch (err) {
+      return { error: authErrorMessage(err) }
+    }
+  }
+
+  /** Resends the verification email to the currently signed-in (but unverified) user. */
+  async function resendVerificationEmail(): Promise<{ error: string | null }> {
+    if (!auth.currentUser) return { error: 'No account is signed in.' }
+    try {
+      await sendEmailVerification(auth.currentUser)
+      return { error: null }
+    } catch (err) {
+      return { error: authErrorMessage(err) }
+    }
+  }
+
+  /** Re-checks verification status after the user clicks the link in their inbox (Firebase doesn't push this change to an already-open tab). */
+  async function recheckVerification() {
+    if (!auth.currentUser) return
+    await auth.currentUser.reload()
+    await resolveUser(auth.currentUser)
   }
 
   async function signOut() {
     await firebaseSignOut(auth)
   }
 
-  return { ...state, signInWithGoogle, signOut }
+  return {
+    ...state,
+    signInWithGoogle,
+    signUpWithEmail,
+    signInWithEmail,
+    resetPassword,
+    resendVerificationEmail,
+    recheckVerification,
+    signOut,
+  }
 }

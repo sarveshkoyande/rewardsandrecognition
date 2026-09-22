@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from './hooks/useAuth'
 import { SignInScreen } from './components/SignInScreen'
 import { BlockedScreen } from './components/BlockedScreen'
+import { VerifyEmailScreen } from './components/VerifyEmailScreen'
 import { RosterImport } from './components/RosterImport'
 import { OpenCycleButton } from './components/OpenCycleButton'
 import { downloadCsv, toCsv } from './lib/csv'
@@ -587,7 +588,21 @@ function ManagerView({
 
 // ─── Shell ─────────────────────────────────────────────────────────────────────
 export default function App() {
-  const { loading, user, role, managerId, blockedMessage, signInWithGoogle, signOut } = useAuth()
+  const {
+    loading,
+    user,
+    role,
+    managerId,
+    blockedMessage,
+    needsVerification,
+    signInWithGoogle,
+    signInWithEmail,
+    signUpWithEmail,
+    resetPassword,
+    resendVerificationEmail,
+    recheckVerification,
+    signOut,
+  } = useAuth()
   const [adminTab, setAdminTab] = useState<'dashboard' | 'people'>('dashboard')
 
   const [managers, setManagers] = useState<Manager[]>([])
@@ -631,8 +646,25 @@ export default function App() {
   if (blockedMessage) {
     return <BlockedScreen message={blockedMessage} onRetry={signInWithGoogle} />
   }
+  if (needsVerification && user?.email) {
+    return (
+      <VerifyEmailScreen
+        email={user.email}
+        onResend={resendVerificationEmail}
+        onRecheck={recheckVerification}
+        onSignOut={signOut}
+      />
+    )
+  }
   if (!user || !role) {
-    return <SignInScreen onSignIn={signInWithGoogle} />
+    return (
+      <SignInScreen
+        onSignInWithGoogle={signInWithGoogle}
+        onSignInWithEmail={signInWithEmail}
+        onSignUpWithEmail={signUpWithEmail}
+        onResetPassword={resetPassword}
+      />
+    )
   }
 
   const cycleLabelById = new Map(cycles.map((c) => [c.id, c.label]))
