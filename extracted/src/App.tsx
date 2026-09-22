@@ -4,6 +4,7 @@ import { SignInScreen } from './components/SignInScreen'
 import { BlockedScreen } from './components/BlockedScreen'
 import { RosterImport } from './components/RosterImport'
 import { OpenCycleButton } from './components/OpenCycleButton'
+import { downloadCsv, toCsv } from './lib/csv'
 import {
   addManager as createManager,
   addReportee as createReportee,
@@ -26,8 +27,6 @@ import {
   type Reportee,
 } from './lib/firestore'
 
-const AWARD_CATEGORIES = ['Star Performer', 'Team Player', 'Innovation', 'Client Excellence', 'Above & Beyond']
-
 const CREDIT_TYPE_LABEL: Record<CreditType, string> = { spark: 'Spark', beacon: 'Beacon' }
 const CREDIT_TYPE_VERB: Record<CreditType, string> = { spark: 'Awarded', beacon: 'Nominated' }
 
@@ -45,8 +44,14 @@ interface AwardWithLabel extends Award {
   cycleLabel: string
 }
 
-function Badge({ label }: { label: string }) {
-  return <span className="tag tag-primary">{label}</span>
+function exportAwardsCsv(awards: AwardWithLabel[], filenamePrefix: string) {
+  const csv = toCsv(
+    ['Type', 'Recipient', 'Awarded By', 'Date'],
+    [...awards]
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .map((a) => [CREDIT_TYPE_LABEL[a.type], a.recipientName, a.managerName, a.date])
+  )
+  downloadCsv(`${filenamePrefix}.csv`, csv)
 }
 
 function TypeTag({ type }: { type: CreditType }) {
@@ -109,7 +114,14 @@ function AdminDashboard({
             <h2 className="ds-title-m">Activity — {currentCycleLabel}</h2>
             <p className="ds-body-s text-[var(--muted-foreground)] mt-0.5">Every Spark award and Beacon nomination this cycle, most recent first</p>
           </div>
-          <OpenCycleButton />
+          <div className="flex items-center gap-2">
+            {currentAwards.length > 0 && (
+              <button className="btn btn-outlined btn-md" onClick={() => exportAwardsCsv(currentAwards, `activity-${currentCycleLabel}`)}>
+                Export CSV
+              </button>
+            )}
+            <OpenCycleButton />
+          </div>
         </div>
         {currentAwards.length === 0 ? (
           <p className="px-5 py-10 text-sm text-[var(--muted-foreground)] text-center">Nothing recorded yet this cycle.</p>
@@ -120,8 +132,6 @@ function AdminDashboard({
                 <th className="text-left px-5 py-3">Type</th>
                 <th className="text-left px-5 py-3">Recipient</th>
                 <th className="text-left px-5 py-3">By</th>
-                <th className="text-left px-5 py-3">Category</th>
-                <th className="text-left px-5 py-3">Reason</th>
                 <th className="text-right px-5 py-3">Date</th>
               </tr>
             </thead>
@@ -131,8 +141,6 @@ function AdminDashboard({
                   <td className="px-5 py-3"><TypeTag type={a.type} /></td>
                   <td className="px-5 py-3 font-medium">{a.recipientName}</td>
                   <td className="px-5 py-3 text-[var(--muted-foreground)]">{a.managerName}</td>
-                  <td className="px-5 py-3"><Badge label={a.category} /></td>
-                  <td className="px-5 py-3 text-[var(--muted-foreground)] max-w-xs truncate">{a.reason}</td>
                   <td className="px-5 py-3 text-right ds-tabular text-xs text-[var(--muted-foreground)]">{a.date}</td>
                 </tr>
               ))}
@@ -269,8 +277,9 @@ function AdminPeopleView({ managers }: { managers: ManagerWithData[] }) {
   )
 }
 
-// ─── History table (shared) ───────────────────────────────────────────────────
+// ─── History table (shared) -- each past cycle is its own expandable group ────
 function HistoryTable({ awards, title, currentCycleLabel }: { awards: AwardWithLabel[]; title: string; currentCycleLabel: string }) {
+  const [openCycle, setOpenCycle] = useState<string | null>(null)
   if (awards.length === 0) return null
   const grouped = awards.reduce<Record<string, AwardWithLabel[]>>((acc, a) => {
     ;(acc[a.cycleLabel] = acc[a.cycleLabel] || []).push(a)
@@ -285,28 +294,55 @@ function HistoryTable({ awards, title, currentCycleLabel }: { awards: AwardWithL
       </div>
       {Object.entries(grouped)
         .sort(([a], [b]) => b.localeCompare(a))
-        .map(([cycle, cycleAwards]) => (
-          <div key={cycle}>
-            <div className="px-5 py-2 bg-[var(--secondary)]/60 border-t border-[var(--border)] flex items-center gap-2">
-              <CycleBadge label={cycle} isCurrent={cycle === currentCycleLabel} />
-              <span className="ds-label-s text-[var(--muted-foreground)]">{cycleAwards.length} item{cycleAwards.length !== 1 ? 's' : ''}</span>
+        .map(([cycle, cycleAwards]) => {
+          const isOpen = openCycle === cycle
+          return (
+            <div key={cycle} className="border-t border-[var(--border)]">
+              <button
+                className="w-full px-5 py-3 bg-[var(--secondary)]/60 flex items-center justify-between gap-2"
+                onClick={() => setOpenCycle(isOpen ? null : cycle)}
+              >
+                <span className="flex items-center gap-2">
+                  <span className="ds-tabular" style={{ display: 'inline-block', width: 12 }}>{isOpen ? '▾' : '▸'}</span>
+                  <CycleBadge label={cycle} isCurrent={cycle === currentCycleLabel} />
+                  <span className="ds-label-s text-[var(--muted-foreground)]">{cycleAwards.length} item{cycleAwards.length !== 1 ? 's' : ''}</span>
+                </span>
+                <span
+                  role="button"
+                  className="btn btn-text btn-sm"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    exportAwardsCsv(cycleAwards, `activity-${cycle}`)
+                  }}
+                >
+                  Export CSV
+                </span>
+              </button>
+              {isOpen && (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="ds-label-m uppercase text-[var(--muted-foreground)]">
+                      <th className="text-left px-5 py-2">Type</th>
+                      <th className="text-left px-5 py-2">Recipient</th>
+                      <th className="text-left px-5 py-2">By</th>
+                      <th className="text-right px-5 py-2">Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...cycleAwards].sort((a, b) => b.date.localeCompare(a.date)).map((a, i) => (
+                      <tr key={a.id} className={`border-t border-[var(--border)] ${i % 2 === 1 ? 'bg-[var(--secondary)]/20' : ''}`}>
+                        <td className="px-5 py-3"><TypeTag type={a.type} /></td>
+                        <td className="px-5 py-3 font-medium">{a.recipientName}</td>
+                        <td className="px-5 py-3 text-[var(--muted-foreground)] ds-body-s">{a.managerName}</td>
+                        <td className="px-5 py-3 text-right ds-tabular text-xs text-[var(--muted-foreground)] whitespace-nowrap">{a.date}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
-            <table className="w-full text-sm">
-              <tbody>
-                {cycleAwards.map((a, i) => (
-                  <tr key={a.id} className={`border-t border-[var(--border)] ${i % 2 === 1 ? 'bg-[var(--secondary)]/20' : ''}`}>
-                    <td className="px-5 py-3"><TypeTag type={a.type} /></td>
-                    <td className="px-5 py-3 font-medium w-40">{a.recipientName}</td>
-                    <td className="px-5 py-3 text-[var(--muted-foreground)] ds-body-s w-36">{a.managerName}</td>
-                    <td className="px-5 py-3"><Badge label={a.category} /></td>
-                    <td className="px-5 py-3 text-[var(--muted-foreground)]">{a.reason}</td>
-                    <td className="px-5 py-3 text-right ds-tabular text-xs text-[var(--muted-foreground)] whitespace-nowrap">{a.date}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ))}
+          )
+        })}
     </div>
   )
 }
@@ -373,7 +409,7 @@ function ManagerView({
   manager: ManagerWithData
   awards: AwardWithLabel[]
   currentCycle: CurrentCycle
-  onGiveAward: (type: CreditType, recipientId: string, recipientName: string, reason: string, category: string) => Promise<void>
+  onGiveAward: (type: CreditType, recipientId: string, recipientName: string) => Promise<void>
   onSetCredits: (spark: number, beacon: number) => Promise<void>
 }) {
   const [editingCredits, setEditingCredits] = useState(false)
@@ -383,7 +419,7 @@ function ManagerView({
   const sparkRemaining = manager.sparkTotal - sparkUsed
   const beaconRemaining = manager.beaconTotal - beaconUsed
 
-  const [form, setForm] = useState({ type: 'spark' as CreditType, recipientId: '', reason: '', category: AWARD_CATEGORIES[0] })
+  const [form, setForm] = useState({ type: 'spark' as CreditType, recipientId: '' })
   const [success, setSuccess] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -393,12 +429,12 @@ function ManagerView({
 
   async function submit() {
     const rep = manager.reportees.find((r) => r.id === form.recipientId)
-    if (!rep || !form.reason.trim() || remaining <= 0) return
+    if (!rep || remaining <= 0) return
     setSubmitting(true)
     setSubmitError(null)
     try {
-      await onGiveAward(form.type, rep.id, rep.name, form.reason, form.category)
-      setForm({ ...form, recipientId: '', reason: '' })
+      await onGiveAward(form.type, rep.id, rep.name)
+      setForm({ ...form, recipientId: '' })
       setSuccess(rep.name)
       setTimeout(() => setSuccess(null), 4000)
     } catch {
@@ -504,35 +540,9 @@ function ManagerView({
             </select>
           </div>
 
-          <div>
-            <label className="ds-label-m text-[var(--foreground)] block mb-1.5">Category</label>
-            <div className="flex flex-wrap gap-2">
-              {AWARD_CATEGORIES.map((c) => (
-                <button
-                  key={c}
-                  disabled={remaining === 0}
-                  onClick={() => setForm({ ...form, category: c })}
-                  className={`chip disabled:opacity-40 disabled:pointer-events-none ${form.category === c ? 'is-selected' : ''}`}
-                >{c}</button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="ds-label-m text-[var(--foreground)] block mb-1.5">Reason for Recognition</label>
-            <textarea
-              className="ds-input resize-none disabled:opacity-50"
-              rows={3}
-              placeholder="Describe what this person did that deserves recognition..."
-              value={form.reason}
-              onChange={(e) => setForm({ ...form, reason: e.target.value })}
-              disabled={remaining === 0}
-            />
-          </div>
-
           <button
             className="btn btn-filled btn-lg disabled:opacity-40 disabled:pointer-events-none"
-            disabled={submitting || !form.recipientId || !form.reason.trim() || remaining === 0 || givenThisType.has(form.recipientId)}
+            disabled={submitting || !form.recipientId || remaining === 0 || givenThisType.has(form.recipientId)}
             onClick={submit}
           >
             {submitting ? 'Saving…' : form.type === 'spark' ? 'Give Spark Award — uses 1 credit →' : 'Nominate for Beacon — uses 1 credit →'}
@@ -550,8 +560,6 @@ function ManagerView({
               <tr className="bg-[var(--secondary)] text-[var(--muted-foreground)] ds-label-m uppercase">
                 <th className="text-left px-5 py-3">Type</th>
                 <th className="text-left px-5 py-3">Recipient</th>
-                <th className="text-left px-5 py-3">Category</th>
-                <th className="text-left px-5 py-3">Reason</th>
                 <th className="text-right px-5 py-3">Date</th>
               </tr>
             </thead>
@@ -560,8 +568,6 @@ function ManagerView({
                 <tr key={a.id} className={`border-t border-[var(--border)] ${i % 2 === 1 ? 'bg-[var(--secondary)]/30' : ''}`}>
                   <td className="px-5 py-3"><TypeTag type={a.type} /></td>
                   <td className="px-5 py-3 font-medium">{a.recipientName}</td>
-                  <td className="px-5 py-3"><Badge label={a.category} /></td>
-                  <td className="px-5 py-3 text-[var(--muted-foreground)]">{a.reason}</td>
                   <td className="px-5 py-3 text-right ds-tabular text-xs text-[var(--muted-foreground)]">{a.date}</td>
                 </tr>
               ))}
@@ -664,7 +670,7 @@ export default function App() {
         }
       : null
 
-  async function handleGiveAward(type: CreditType, recipientId: string, recipientName: string, reason: string, category: string) {
+  async function handleGiveAward(type: CreditType, recipientId: string, recipientName: string) {
     if (!currentManager || !currentCycle) return
     await giveAward({
       cycleId: currentCycle.cycleId,
@@ -673,8 +679,6 @@ export default function App() {
       type,
       recipientId,
       recipientName,
-      reason,
-      category,
       date: new Date().toISOString().split('T')[0],
     })
   }

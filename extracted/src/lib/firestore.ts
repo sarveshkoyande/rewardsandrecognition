@@ -37,8 +37,6 @@ export interface Award {
   type: CreditType
   recipientId: string
   recipientName: string
-  reason: string
-  category: string
   date: string
 }
 
