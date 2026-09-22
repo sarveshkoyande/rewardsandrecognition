@@ -1,0 +1,4 @@
+# Overrides the parent directories' *.ttf -> Git LFS rule. Vercel's default
+# GitHub integration does not fetch LFS content, so these self-hosted fonts
+# -- which the deployed app actually serves -- must stay regular git blobs.
+*.ttf -filter -diff -merge -text

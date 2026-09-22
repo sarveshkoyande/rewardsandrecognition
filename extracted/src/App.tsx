@@ -79,6 +79,36 @@ function CreditPips({ total, used }: { total: number; used: number }) {
 }
 
 // ─── Admin: Overview ──────────────────────────────────────────────────────────
+type ManagerCreditSortKey = 'name' | 'team' | 'sparkReported' | 'sparkGiven' | 'sparkPending' | 'beaconReported' | 'beaconGiven'
+
+function SortHeader({
+  label,
+  sortKey,
+  active,
+  dir,
+  align,
+  onSort,
+}: {
+  label: string
+  sortKey: ManagerCreditSortKey
+  active: boolean
+  dir: 'asc' | 'desc'
+  align: 'left' | 'center'
+  onSort: (key: ManagerCreditSortKey) => void
+}) {
+  return (
+    <th className={`px-5 py-3 ${align === 'center' ? 'text-center' : 'text-left'}`}>
+      <button
+        onClick={() => onSort(sortKey)}
+        className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors"
+      >
+        {label}
+        <span style={{ opacity: active ? 1 : 0.3 }}>{active && dir === 'asc' ? '▲' : '▼'}</span>
+      </button>
+    </th>
+  )
+}
+
 function AdminDashboard({
   managers,
   awards,
@@ -92,6 +122,40 @@ function AdminDashboard({
   const sparkGiven = currentAwards.filter((a) => a.type === 'spark').length
   const beaconGiven = currentAwards.filter((a) => a.type === 'beacon').length
   const reportedCount = managers.filter((m) => m.hasReported).length
+
+  const [sortKey, setSortKey] = useState<ManagerCreditSortKey>('sparkPending')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+
+  function toggleSort(key: ManagerCreditSortKey) {
+    if (key === sortKey) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortKey(key)
+      // Numeric columns read most-useful highest-first by default; the name
+      // column reads alphabetically (A→Z) by default.
+      setSortDir(key === 'name' ? 'asc' : 'desc')
+    }
+  }
+
+  const creditRows = managers.map((m) => {
+    const sparkGivenByManager = currentAwards.filter((a) => a.managerId === m.id && a.type === 'spark').length
+    const beaconGivenByManager = currentAwards.filter((a) => a.managerId === m.id && a.type === 'beacon').length
+    return {
+      manager: m,
+      team: m.reportees.length,
+      sparkReported: m.sparkTotal,
+      sparkGiven: sparkGivenByManager,
+      sparkPending: m.sparkTotal - sparkGivenByManager,
+      beaconReported: m.beaconTotal,
+      beaconGiven: beaconGivenByManager,
+    }
+  })
+
+  const sortedCreditRows = [...creditRows].sort((a, b) => {
+    const dirMul = sortDir === 'asc' ? 1 : -1
+    if (sortKey === 'name') return a.manager.name.localeCompare(b.manager.name) * dirMul
+    return (a[sortKey] - b[sortKey]) * dirMul
+  })
 
   return (
     <div className="space-y-8">
@@ -117,35 +181,30 @@ function AdminDashboard({
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-[var(--secondary)] text-[var(--muted-foreground)] ds-label-m uppercase">
-              <th className="text-left px-5 py-3">Manager</th>
-              <th className="text-center px-5 py-3">Team</th>
-              <th className="text-center px-5 py-3">Spark Reported</th>
-              <th className="text-center px-5 py-3">Spark Given</th>
-              <th className="text-center px-5 py-3">Spark Pending</th>
-              <th className="text-center px-5 py-3">Beacon Reported</th>
-              <th className="text-center px-5 py-3">Beacon Given</th>
+              <SortHeader label="Manager" sortKey="name" align="left" active={sortKey === 'name'} dir={sortDir} onSort={toggleSort} />
+              <SortHeader label="Team" sortKey="team" align="center" active={sortKey === 'team'} dir={sortDir} onSort={toggleSort} />
+              <SortHeader label="Spark Reported" sortKey="sparkReported" align="center" active={sortKey === 'sparkReported'} dir={sortDir} onSort={toggleSort} />
+              <SortHeader label="Spark Given" sortKey="sparkGiven" align="center" active={sortKey === 'sparkGiven'} dir={sortDir} onSort={toggleSort} />
+              <SortHeader label="Spark Pending" sortKey="sparkPending" align="center" active={sortKey === 'sparkPending'} dir={sortDir} onSort={toggleSort} />
+              <SortHeader label="Beacon Reported" sortKey="beaconReported" align="center" active={sortKey === 'beaconReported'} dir={sortDir} onSort={toggleSort} />
+              <SortHeader label="Beacon Given" sortKey="beaconGiven" align="center" active={sortKey === 'beaconGiven'} dir={sortDir} onSort={toggleSort} />
             </tr>
           </thead>
           <tbody>
-            {managers.map((m, i) => {
-              const mSparkGiven = currentAwards.filter((a) => a.managerId === m.id && a.type === 'spark').length
-              const mBeaconGiven = currentAwards.filter((a) => a.managerId === m.id && a.type === 'beacon').length
-              const sparkPending = m.sparkTotal - mSparkGiven
-              return (
-                <tr key={m.id} className={`border-t border-[var(--border)] ${i % 2 === 1 ? 'bg-[var(--secondary)]/30' : ''}`}>
-                  <td className="px-5 py-3">
-                    <p className="font-medium">{m.name}</p>
-                    {!m.hasReported && <span className="tag tag-neutral" style={{ marginTop: 2 }}>Not reported yet</span>}
-                  </td>
-                  <td className="px-5 py-3 text-center ds-tabular text-[var(--muted-foreground)]">{m.reportees.length}</td>
-                  <td className="px-5 py-3 text-center ds-tabular">{m.sparkTotal}</td>
-                  <td className="px-5 py-3 text-center ds-tabular text-[var(--primary)]">{mSparkGiven}</td>
-                  <td className="px-5 py-3 text-center ds-tabular text-[var(--success-foreground)] font-semibold">{sparkPending}</td>
-                  <td className="px-5 py-3 text-center ds-tabular">{m.beaconTotal}</td>
-                  <td className="px-5 py-3 text-center ds-tabular text-[var(--primary)]">{mBeaconGiven}</td>
-                </tr>
-              )
-            })}
+            {sortedCreditRows.map((row, i) => (
+              <tr key={row.manager.id} className={`border-t border-[var(--border)] ${i % 2 === 1 ? 'bg-[var(--secondary)]/30' : ''}`}>
+                <td className="px-5 py-3">
+                  <p className="font-medium">{row.manager.name}</p>
+                  {!row.manager.hasReported && <span className="tag tag-neutral" style={{ marginTop: 2 }}>Not reported yet</span>}
+                </td>
+                <td className="px-5 py-3 text-center ds-tabular text-[var(--muted-foreground)]">{row.team}</td>
+                <td className="px-5 py-3 text-center ds-tabular">{row.sparkReported}</td>
+                <td className="px-5 py-3 text-center ds-tabular text-[var(--primary)]">{row.sparkGiven}</td>
+                <td className="px-5 py-3 text-center ds-tabular text-[var(--success-foreground)] font-semibold">{row.sparkPending}</td>
+                <td className="px-5 py-3 text-center ds-tabular">{row.beaconReported}</td>
+                <td className="px-5 py-3 text-center ds-tabular text-[var(--primary)]">{row.beaconGiven}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
