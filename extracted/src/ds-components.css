@@ -47,6 +47,8 @@
   border-radius: var(--radius-full);
   font: var(--label-large); font-weight: 500; letter-spacing: 0.1px;
   border: 1px solid transparent;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .tag-md { height: 32px; padding: 0 var(--spacing-12); font: 500 16px/24px var(--font-family); letter-spacing: 0.5px; }
 
