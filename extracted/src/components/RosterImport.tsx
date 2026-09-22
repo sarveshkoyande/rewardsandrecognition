@@ -1,14 +1,19 @@
-import { useState } from 'react'
-import { parseRosterCsv, type RosterRow } from '../lib/csv'
+import { useRef, useState } from 'react'
+import { downloadCsv, parseRosterCsv, toCsv, type RosterRow } from '../lib/csv'
 import { importRoster, type RosterRowResult } from '../lib/firestore'
 
+const TEMPLATE_HEADERS = ['manager_name', 'manager_email', 'reportee_name', 'reportee_designation']
+
 export function RosterImport() {
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [fileName, setFileName] = useState<string | null>(null)
   const [rows, setRows] = useState<RosterRow[]>([])
   const [parseError, setParseError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [results, setResults] = useState<RosterRowResult[] | null>(null)
 
   async function onFile(file: File) {
+    setFileName(file.name)
     const text = await file.text()
     const { rows: parsed, error } = parseRosterCsv(text)
     setParseError(error)
@@ -26,6 +31,10 @@ export function RosterImport() {
     }
   }
 
+  function downloadTemplate() {
+    downloadCsv('roster-template.csv', toCsv(TEMPLATE_HEADERS, []))
+  }
+
   return (
     <div className="ds-card overflow-hidden">
       <div className="px-5 py-4 border-b border-[var(--border)]">
@@ -35,12 +44,22 @@ export function RosterImport() {
         </p>
       </div>
       <div className="p-5 space-y-4">
-        <input
-          type="file"
-          accept=".csv,text/csv"
-          onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])}
-          className="ds-body-s"
-        />
+        <div className="flex items-center gap-3 flex-wrap">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])}
+            className="hidden"
+          />
+          <button className="btn btn-outlined btn-md" onClick={() => fileInputRef.current?.click()}>
+            Choose CSV file
+          </button>
+          <span className="ds-body-s text-[var(--muted-foreground)]">{fileName ?? 'No file chosen'}</span>
+          <button className="btn btn-text btn-md" onClick={downloadTemplate}>
+            Download empty template
+          </button>
+        </div>
         {parseError && <p className="ds-body-s text-[var(--error-foreground)]">{parseError}</p>}
 
         {rows.length > 0 && !results && (
