@@ -263,9 +263,9 @@ function AdminDashboard({
 // ─── Admin: People ────────────────────────────────────────────────────────────
 function AdminPeopleView({ managers }: { managers: ManagerWithData[] }) {
   const [addManager, setAddManager] = useState(false)
-  const [newManager, setNewManager] = useState({ name: '', designation: '', email: '' })
+  const [newManager, setNewManager] = useState({ name: '', email: '' })
   const [addReportee, setAddReportee] = useState<string | null>(null)
-  const [newReportee, setNewReportee] = useState({ name: '', designation: '' })
+  const [newReportee, setNewReportee] = useState({ name: '' })
 
   return (
     <div className="space-y-6">
@@ -284,18 +284,17 @@ function AdminPeopleView({ managers }: { managers: ManagerWithData[] }) {
       {addManager && (
         <div className="ds-card p-5" style={{ boxShadow: '0 0 0 1px var(--primary), var(--elevation-02)' }}>
           <h3 className="ds-title-m mb-3">New Manager</h3>
-          <div className="grid grid-cols-3 gap-3 mb-3">
+          <div className="grid grid-cols-2 gap-3 mb-3">
             <input autoFocus className="ds-input" placeholder="Full name" value={newManager.name} onChange={(e) => setNewManager({ ...newManager, name: e.target.value })} />
-            <input className="ds-input" placeholder="Google email" value={newManager.email} onChange={(e) => setNewManager({ ...newManager, email: e.target.value })} />
-            <input className="ds-input" placeholder="Designation" value={newManager.designation} onChange={(e) => setNewManager({ ...newManager, designation: e.target.value })} />
+            <input className="ds-input" placeholder="Email" value={newManager.email} onChange={(e) => setNewManager({ ...newManager, email: e.target.value })} />
           </div>
           <div className="flex gap-2">
             <button
               className="btn btn-filled btn-sm"
               onClick={async () => {
                 if (newManager.name.trim() && newManager.email.trim()) {
-                  await createManager(newManager.email, newManager.name, newManager.designation)
-                  setNewManager({ name: '', designation: '', email: '' })
+                  await createManager(newManager.email, newManager.name, '')
+                  setNewManager({ name: '', email: '' })
                   setAddManager(false)
                 }
               }}
@@ -310,7 +309,7 @@ function AdminPeopleView({ managers }: { managers: ManagerWithData[] }) {
           <div className="px-5 py-4 flex items-center justify-between border-b border-[var(--border)] bg-[var(--secondary)]/40">
             <div>
               <p className="font-semibold">{m.name}</p>
-              <p className="text-xs text-[var(--muted-foreground)]">{m.designation} · {m.reportees.length} reportees</p>
+              <p className="text-xs text-[var(--muted-foreground)]">{m.reportees.length} reportees</p>
             </div>
             <div className="text-right">
               <p className="text-xs text-[var(--muted-foreground)] mb-1">This cycle's credits (self-reported)</p>
@@ -326,7 +325,6 @@ function AdminPeopleView({ managers }: { managers: ManagerWithData[] }) {
             <thead>
               <tr className="ds-label-m uppercase text-[var(--muted-foreground)]">
                 <th className="text-left px-5 py-2.5">Reportee</th>
-                <th className="text-left px-5 py-2.5">Designation</th>
                 <th className="px-5 py-2.5" />
               </tr>
             </thead>
@@ -334,7 +332,6 @@ function AdminPeopleView({ managers }: { managers: ManagerWithData[] }) {
               {m.reportees.map((r, i) => (
                 <tr key={r.id} className={`border-t border-[var(--border)] ${i % 2 === 1 ? 'bg-[var(--secondary)]/20' : ''}`}>
                   <td className="px-5 py-2.5 font-medium">{r.name}</td>
-                  <td className="px-5 py-2.5 text-[var(--muted-foreground)]">{r.designation}</td>
                   <td className="px-5 py-2.5 text-right">
                     <button className="btn btn-text btn-sm" style={{ color: 'var(--error-foreground)' }} onClick={() => removeReportee(r.id)}>Remove</button>
                   </td>
@@ -345,28 +342,25 @@ function AdminPeopleView({ managers }: { managers: ManagerWithData[] }) {
                   <td className="px-5 py-2.5">
                     <input autoFocus className="ds-input" style={{ height: 32, padding: '0 var(--spacing-8)' }} placeholder="Full name" value={newReportee.name} onChange={(e) => setNewReportee({ ...newReportee, name: e.target.value })} />
                   </td>
-                  <td className="px-5 py-2.5">
-                    <input className="ds-input" style={{ height: 32, padding: '0 var(--spacing-8)' }} placeholder="Designation" value={newReportee.designation} onChange={(e) => setNewReportee({ ...newReportee, designation: e.target.value })} />
-                  </td>
                   <td className="px-5 py-2.5 text-right">
                     <div className="flex gap-2 justify-end">
                       <button
                         className="btn btn-filled btn-sm"
                         onClick={async () => {
                           if (newReportee.name.trim()) {
-                            await createReportee(m.id, newReportee.name, newReportee.designation)
-                            setNewReportee({ name: '', designation: '' })
+                            await createReportee(m.id, newReportee.name, '')
+                            setNewReportee({ name: '' })
                             setAddReportee(null)
                           }
                         }}
                       >Add</button>
-                      <button className="btn btn-outlined btn-sm" onClick={() => { setAddReportee(null); setNewReportee({ name: '', designation: '' }) }}>Cancel</button>
+                      <button className="btn btn-outlined btn-sm" onClick={() => { setAddReportee(null); setNewReportee({ name: '' }) }}>Cancel</button>
                     </div>
                   </td>
                 </tr>
               ) : (
                 <tr className="border-t border-[var(--border)]">
-                  <td colSpan={3} className="px-5 py-2">
+                  <td colSpan={2} className="px-5 py-2">
                     <button className="btn btn-text btn-sm" onClick={() => setAddReportee(m.id)}>+ Add reportee</button>
                   </td>
                 </tr>
